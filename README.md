@@ -16,12 +16,12 @@ time-series forecasting, and large-scale data processing.
 | # | Project | Main focus | Tools / Topics |
 |---|---|---|---|
 | 01 | Vegan Store Management Software | Python programming and software development | Python |
-| 02 | Texas Real Estate Market Analysis | Exploratory data analysis | Statistics, data visualization |
-| 03 | Birth Weight Prediction | Inferential statistics and regression | Statistical modeling |
+| 02 | Texas Real Estate Market Analysis | Exploratory data analysis | R, ggplot2, descriptive statistics |
+| 03 | Birth Weight Prediction | Inferential statistics and regression | R, statistical modeling |
 | 04 | Insurance Cross-Selling | Machine Learning fundamentals | Classification, clustering, scikit-learn |
 | 05 | Credit Card Approval | Machine Learning models and comparison | SVM, Random Forest, KNN, Neural Networks |
 | 06 | Energy Consumption Forecasting | Advanced ML and time series | Forecasting, recurrent models |
-| 07 | Anti-Hater Filter for Social Networks | Deep Learning for text | Neural Networks, NLP |
+| 07 | Anti-Hater Filter for Social Networks | Deep Learning for text | TensorFlow, Neural Networks, NLP |
 | 08 | Corporate Text Classification | Natural Language Processing | Text preprocessing, classification, embeddings |
 | 09 | Bank Customer Analysis | Relational data analysis | SQL |
 | 10 | Wikipedia Analysis | Big Data | Spark, large-scale data processing |
