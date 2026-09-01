@@ -60,6 +60,10 @@ with stronger sales activity together with a declining stock of active listings.
 Data Quality Checks · Exploratory Data Analysis · Data Visualization ·
 Statistical Interpretation**
 
+## Report
+
+🌐 [Open the rendered analysis in your browser](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
+
 ## Files
 
 - `texas_real_estate_analysis.Rmd` — reproducible R Markdown analysis
