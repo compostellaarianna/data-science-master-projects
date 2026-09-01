@@ -64,7 +64,7 @@ Statistical Interpretation**
 
 🌐 [Open the rendered analysis in your browser](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
 
-The rendered report includes a **Show Code / Hide Code** toggle for viewing the underlying R code.
+The rendered report includes a **Show All Code / Hide All Code** toggle for viewing the underlying R code.
 
 ## Files
 
