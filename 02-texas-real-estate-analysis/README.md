@@ -1,10 +1,12 @@
 # Texas Real Estate Market Analysis
 
-An exploratory analysis of historical real estate market data from selected cities
-in Texas, developed in **R** as part of my
-**[professional Master's program in Data Science at ProfessionAI](https://profession.ai/corsi/master-data-science)**.
+An exploratory analysis of historical real estate market data from selected cities in Texas,
+developed in **R** as part of my
+[**professional Master's program in Data Science at ProfessionAI**](https://profession.ai/corsi/master-data-science).
 
 🌐 [View the rendered HTML report](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
+
+*The rendered report includes a **Show All Code / Hide All Code** toggle for inspecting the underlying R code.*
 
 ## Overview
 
@@ -60,12 +62,6 @@ with stronger sales activity together with a declining stock of active listings.
 Data Quality Checks · Exploratory Data Analysis · Data Visualization ·
 Statistical Interpretation**
 
-## Report
-
-🌐 [Open the rendered analysis in your browser](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
-
-The rendered report includes a **Show All Code / Hide All Code** toggle for viewing the underlying R code.
-
 ## Files
 
 - `texas_real_estate_analysis.Rmd` — reproducible R Markdown analysis
@@ -81,11 +77,3 @@ Required R packages:
 
 ```r
 install.packages(c("dplyr", "ggplot2", "moments"))
-```
-
-## Context
-
-This project was developed as a hands-on descriptive statistics assignment within the
-[ProfessionAI Data Science Master's program](https://profession.ai/corsi/master-data-science).
-
-The analysis is descriptive and is not intended to establish causal relationships.
