@@ -81,7 +81,6 @@ install.packages(c("dplyr", "ggplot2", "moments"))
 
 ## Context
 
-This project was developed as a hands-on descriptive statistics assignment within the
-[ProfessionAI Data Science Master's program](https://profession.ai/corsi/master-data-science).
+This project was developed as a hands-on exercise in descriptive statistics and exploratory data analysis.
 
 The analysis is descriptive and is not intended to establish causal relationships.
