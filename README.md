@@ -15,8 +15,8 @@ time-series forecasting, and large-scale data processing.
 
 | # | Project | Main focus | Tools / Topics |
 |---|---|---|---|
-| 01 | Vegan Store Management Software | Python application development | Python, JSON, input validation, data persistence |
-| 02 | Texas Real Estate Market Analysis | Exploratory data analysis | R, dplyr, ggplot2, descriptive statistics |
+| 01 | [Vegan Store Management Software](./01-python-vegan-store) | Python application development | Python, JSON, input validation, data persistence |
+| 02 | [Texas Real Estate Market Analysis](./02-texas-real-estate-analysis) | Exploratory data analysis | R, dplyr, ggplot2, descriptive statistics |
 | 03 | Birth Weight Prediction | Inferential statistics and regression | R, statistical modeling |
 | 04 | Insurance Cross-Selling | Machine Learning fundamentals | Classification, clustering, scikit-learn |
 | 05 | Credit Card Approval | Machine Learning models and comparison | SVM, Random Forest, KNN, Neural Networks |
