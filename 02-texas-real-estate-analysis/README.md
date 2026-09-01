@@ -4,6 +4,8 @@ An exploratory analysis of historical real estate market data from selected citi
 in Texas, developed in **R** as part of my
 **[professional Master's program in Data Science at ProfessionAI](https://profession.ai/corsi/master-data-science)**.
 
+🌐 [View the rendered HTML report](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
+
 ## Overview
 
 This project explores geographical, temporal, and seasonal patterns in the Texas
