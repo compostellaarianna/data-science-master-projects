@@ -1,7 +1,7 @@
 # Vegan Store Management Software
 
-A command-line inventory and sales management application developed in Python
-as part of my professional Master's training in Data Science at ProfessionAI.
+A command-line inventory and sales management application developed in Python as part of my
+**[professional Master's program in Data Science at ProfessionAI](https://profession.ai/corsi/master-data-science)**.
 
 ## Overview
 
@@ -16,35 +16,43 @@ input validation, file handling, and basic application logic.
 - Add new products to the inventory
 - Update quantities of existing products
 - Display the current inventory
-- Register single or multiple product sales
-- Validate prices and quantities
+- Register one or multiple product sales
+- Validate product names, prices, and quantities
 - Check stock availability before completing a sale
 - Automatically remove out-of-stock products
 - Calculate gross and net profits
 - Persist inventory and profit data using JSON
-- Provide an interactive command-line help menu
+- Display an interactive help menu
 
 ## Technical implementation
 
-The application is organized into modular functions responsible for:
+The application is organized into functions responsible for data persistence,
+input validation, inventory management, sales, and profit calculation.
 
-- loading and saving data
-- validating user input
-- managing inventory
-- registering sales
-- calculating profits
-- displaying available commands
-
-Input validation prevents empty product names and invalid or non-positive
-numeric values.
-
-Inventory and profit information is stored in a JSON file, allowing data to
-persist between program sessions.
+Input validation prevents empty product names and non-positive or invalid numeric values.
+Inventory and profit data are stored in `market_data.json`, allowing them to persist
+between program sessions.
 
 ## Skills practiced
 
-**Python · Functions · Modular Programming · Input Validation · JSON ·
-File Handling · Data Persistence · CLI Applications · Docstrings**
+**Python · Functions · Input Validation · JSON · File Handling ·
+Data Persistence · CLI Applications · Docstrings**
+
+## Files
+
+- `vegan_store.py` — standalone Python version
+- `vegan_store.ipynb` — notebook version
+- `market_data.json` — created automatically when the program runs
+
+## Running the application
+
+```bash
+python vegan_store.py
+```
+
+Available commands:
+
+`add` · `list` · `sale` · `profits` · `help` · `exit`
 
 ## Context
 
