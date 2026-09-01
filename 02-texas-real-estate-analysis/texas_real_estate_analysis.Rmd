@@ -1,0 +1,1441 @@
+---
+title: "Texas Real Estate Market Analysis"
+author: "Arianna Compostella"
+date: "2026-08-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+<style>
+table {
+  width: auto;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 1.5em;
+}
+
+th, td {
+  padding: 8px 20px;
+  text-align: center;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+caption {
+  caption-side: top;
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+</style>
+
+
+## 1. Introduction
+
+This analysis explores historical real estate market data from selected cities in Texas. The main objective is to describe the distribution and variability of key market indicators, investigate differences across cities and time periods, and identify relevant patterns in sales, prices, listings, and market inventory.
+
+Each observation represents the real estate market of a specific city in a specific month and year.
+
+---
+
+## 2. Data Preparation
+
+### 2.1 Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+
+library(dplyr)
+library(ggplot2)
+library(moments)
+```
+
+### 2.2 Dataset Import
+
+```{r dataset-import}
+real_estate <- read.csv("realestate_texas.csv")
+```
+
+The dataset structure is summarized below.
+
+```{r data-overview}
+data_overview <- data.frame(
+  Metric = c(
+    "Observations",
+    "Original variables",
+    "Cities",
+    "Period"
+  ),
+  Value = c(
+    nrow(real_estate),
+    ncol(real_estate),
+    length(unique(real_estate$city)),
+    paste(range(real_estate$year), collapse = "–")
+  )
+)
+
+knitr::kable(
+  data_overview,
+  caption = "Dataset Overview"
+)
+```
+
+The observations cover four Texas cities over the period from 2010 to 2014.
+
+### 2.3 Variable Preparation
+
+The variable `city` is converted into a factor because it represents a nominal categorical variable.
+
+```{r variable-preparation}
+real_estate$city <- factor(real_estate$city)
+```
+
+A display-oriented ordered factor is created for the month names in order to preserve the natural calendar sequence in tables and graphical representations. The original `month` variable is retained as a numerically coded cyclical categorical variable. The ordered factor is used for presentation purposes and does not imply a conventional ordinal measurement scale.
+
+```{r month-factor}
+real_estate$month_name <- factor(
+  real_estate$month,
+  levels = 1:12,
+  labels = month.name,
+  ordered = TRUE
+)
+```
+
+The quantitative variables used repeatedly in the analysis are defined once and reused throughout the report.
+
+```{r analysis-variable-groups}
+quantitative_vars <- c(
+  "sales",
+  "volume",
+  "median_price",
+  "listings",
+  "months_inventory"
+)
+```
+
+---
+
+## 3. Data Quality Checks
+
+Before performing the statistical analysis, the dataset was checked for missing values, duplicated observations, temporal coverage, and evident inconsistencies.
+
+```{r data-quality}
+minimum_values <- sapply(
+  real_estate[quantitative_vars],
+  min
+)
+
+quality_checks <- data.frame(
+  Check = c(
+    "Missing values",
+    "Duplicated city-year-month observations",
+    "Year range",
+    "Month range",
+    "All quantitative minima are positive"
+  ),
+  Result = c(
+    sum(is.na(real_estate)),
+    sum(
+      duplicated(
+        real_estate[c("city", "year", "month")]
+      )
+    ),
+    paste(range(real_estate$year), collapse = "–"),
+    paste(range(real_estate$month), collapse = "–"),
+    ifelse(all(minimum_values > 0), "Yes", "No")
+  )
+)
+
+knitr::kable(
+  quality_checks,
+  caption = "Dataset Quality Checks"
+)
+```
+
+No missing values were detected in the dataset. In addition, no duplicated observations were found for the combination of city, year, and month. The month variable ranges correctly from 1 to 12, while the dataset covers the period from 2010 to 2014.
+
+All quantitative variables show positive minimum values, with no evident impossible or structurally inconsistent observations. Overall, the dataset appears suitable for the subsequent statistical analysis.
+
+---
+
+## 4. Variable Classification
+
+```{r variable-classification}
+variable <- c(
+  "city",
+  "year",
+  "month",
+  "sales",
+  "volume",
+  "median_price",
+  "listings",
+  "months_inventory"
+)
+
+description <- c(
+  "reference city",
+  "reference year",
+  "reference month",
+  "total number of sales",
+  "total sales volume (USD millions)",
+  "median sale price (USD)",
+  "total number of active listings",
+  "estimated number of months required to sell the current inventory"
+)
+
+statistical_type <- c(
+  "qualitative nominal",
+  "quantitative temporal, discrete as recorded",
+  "qualitative nominal, cyclical and numerically coded",
+  "quantitative discrete",
+  "quantitative continuous",
+  "quantitative continuous",
+  "quantitative discrete",
+  "quantitative continuous"
+)
+
+measurement_scale <- c(
+  "nominal",
+  "interval",
+  "nominal",
+  "ratio",
+  "ratio",
+  "ratio",
+  "ratio",
+  "ratio"
+)
+
+suitable_analysis <- c(
+  "Frequencies, proportions, Gini heterogeneity index",
+  "Grouping, chronological comparisons and trend analysis",
+  "Frequencies, proportions and seasonal analysis",
+  "Position, variability and shape measures",
+  "Position, variability and shape measures",
+  "Position, variability and shape measures",
+  "Position, variability and shape measures",
+  "Position, variability and shape measures"
+)
+
+variable_classification <- data.frame(
+  Variable = variable,
+  Description = description,
+  Statistical_Type = statistical_type,
+  Measurement_Scale = measurement_scale,
+  Suitable_Analysis = suitable_analysis
+)
+
+knitr::kable(
+  variable_classification,
+  col.names = c(
+    "Variable",
+    "Description",
+    "Statistical Type",
+    "Measurement Scale",
+    "Suitable Analysis"
+  ),
+  caption = "Classification of Dataset Variables"
+)
+```
+
+`year` represents calendar time and is recorded at annual resolution. The underlying time dimension is continuous, but the observed variable takes integer year values. Therefore, it is treated here as a quantitative temporal variable, discrete as recorded, on an interval scale. For grouped comparisons, it may be handled as an ordered factor, while its chronological ordering is retained for trend analysis.
+
+`month` is a numerically coded cyclical categorical variable. The values 1–12 identify the months of the year but should not be interpreted as ordinary numerical magnitudes. For tables and visualizations, `month_name` is stored as an ordered factor solely to preserve the calendar sequence from January to December.
+
+---
+
+## 5. Descriptive Statistics
+
+### 5.1 Helper Functions
+
+#### Coefficient of Variation
+
+The coefficient of variation is used to measure relative variability and allows comparisons between quantitative variables measured on different scales or in different units.
+
+
+```{r cv-function}
+cv <- function(x) {
+  sd(x) / mean(x) * 100
+}
+```
+
+#### Normalized Gini Heterogeneity Index
+
+The normalized Gini heterogeneity index is used to measure how evenly observations are distributed across the categories of a qualitative variable.
+
+```{r gini-function}
+gini.index <- function(x){
+  ni <- table(x)        # Absolute frequencies
+  fi <- ni/length(x)    # Relative frequencies
+  fi2 <- fi^2           # Squared relative frequencies
+  J <- length(ni)       # Number of categories
+  
+  gini <- 1-sum(fi2)    # Raw Gini heterogeneity index
+  gini.normalized <- gini / ((J - 1) / J) # Normalized Gini index
+  
+  return(gini.normalized)
+}
+```
+
+#### Quantitative Summary Statistics Function
+
+The following function calculates the main measures of position, variability, and distribution shape for a quantitative variable.
+
+```{r summary-stats-function}
+summary_stats_quant_var <- function(x) {
+  c(
+    Mean = mean(x),
+    Median = median(x),
+    Q1 = unname(quantile(x, 0.25)),
+    Q3 = unname(quantile(x, 0.75)),
+    Min = min(x),
+    Max = max(x),
+    Range = max(x) - min(x),
+    Variance = var(x),
+    SD = sd(x),
+    IQR = IQR(x),
+    CV = cv(x),
+    Skewness = skewness(x),
+    Excess_Kurtosis = kurtosis(x) - 3
+  )
+}
+```
+
+### 5.2 Quantitative Variables
+
+The main quantitative variables considered in the descriptive analysis are `sales`, `volume`, `median_price`, `listings`, and `months_inventory`. For each variable, measures of position, variability, skewness, and kurtosis are calculated through the reusable `summary_stats_quant_var()` function defined above.
+
+```{r descriptive-statistics-tables}
+descriptive_stats <- as.data.frame(
+  t(
+    sapply(
+      real_estate[quantitative_vars],
+      summary_stats_quant_var
+    )
+  )
+)
+
+position_stats <- descriptive_stats[
+  ,
+  c("Mean", "Median", "Q1", "Q3", "Min", "Max"),
+  drop = FALSE
+]
+
+variability_shape_stats <- descriptive_stats[
+  ,
+  c(
+    "Range",
+    "Variance",
+    "SD",
+    "IQR",
+    "CV",
+    "Skewness",
+    "Excess_Kurtosis"
+  ),
+  drop = FALSE
+]
+
+position_stats_display <- data.frame(
+  Variable = rownames(position_stats),
+  position_stats,
+  row.names = NULL
+)
+
+variability_shape_stats_display <- data.frame(
+  Variable = rownames(variability_shape_stats),
+  variability_shape_stats,
+  row.names = NULL
+)
+
+knitr::kable(
+  position_stats_display,
+  digits = 2,
+  format.args = list(
+    scientific = FALSE,
+    big.mark = ","
+  ),
+  caption = "Position Measures for Quantitative Variables",
+  row.names = FALSE
+)
+
+knitr::kable(
+  variability_shape_stats_display,
+  digits = 2,
+  format.args = list(
+    scientific = FALSE,
+    big.mark = ","
+  ),
+  caption = "Variability and Shape Measures for Quantitative Variables",
+  row.names = FALSE
+)
+```
+
+#### 5.2.1 Sales
+
+The number of sales ranges from 79 to 423, with a mean of approximately 192.29 and a median of 175.5. The mean is higher than the median, which is consistent with the positive skewness observed in the distribution.
+
+The central 50% of the observations lies between 127 and 247 sales, resulting in an interquartile range of 120. The standard deviation is approximately 79.65 sales, while the coefficient of variation is approximately 41.42%, indicating substantial variability relative to the average level of sales.
+
+The skewness coefficient is approximately 0.72, suggesting a moderately right-skewed distribution. This indicates that some relatively high sales observations extend the upper tail and pull the mean above the median.
+
+The excess kurtosis is approximately -0.31. The distribution can therefore be described as mildly platykurtic relative to a normal distribution, suggesting slightly lighter tails and a less pronounced tendency toward extreme observations.
+
+#### 5.2.2 Volume
+
+The total sales volume ranges from USD 8.17 million to USD 83.55 million, with a mean of approximately USD 31.01 million and a median of USD 27.06 million. The mean is higher than the median, which is consistent with the positive skewness observed in the distribution.
+
+The central 50% of observations lies between USD 17.66 million and USD 40.89 million, resulting in an interquartile range of approximately USD 23.23 million. The standard deviation is approximately USD 16.65 million, while the coefficient of variation is approximately 53.71%, indicating substantial variability relative to the average sales volume.
+
+The skewness coefficient is approximately 0.88, suggesting a moderately right-skewed distribution. Some observations with relatively high sales volumes extend the upper tail and pull the mean above the median.
+
+The excess kurtosis is approximately 0.18, which is close to zero. Therefore, the distribution can be considered approximately mesokurtic, with only a very slight tendency toward heavier tails than a normal distribution.
+
+#### 5.2.3 Median Price
+
+The median sale price ranges from USD 73,800 to USD 180,000, with a mean of approximately USD 132,665 and a median of USD 134,500. The mean is slightly lower than the median, which is consistent with the negative skewness observed in the distribution.
+
+The central 50% of observations lies between USD 117,300 and USD 150,050, resulting in an interquartile range of USD 32,750. The standard deviation is approximately USD 22,662, while the coefficient of variation is approximately 17.08%. Compared with sales and total sales volume, median price therefore shows substantially lower relative variability.
+
+The skewness coefficient is approximately -0.36, indicating a mildly left-skewed distribution. Some relatively low median-price observations extend the lower tail and contribute to pulling the mean slightly below the median.
+
+The excess kurtosis is approximately -0.62, suggesting a mildly platykurtic distribution, with somewhat lighter tails than a normal distribution.
+
+#### 5.2.4 Listings
+
+The total number of active listings ranges from 743 to 3296, with a mean of approximately 1738.02 and a median of 1618.5. The mean is higher than the median, which is consistent with the positive skewness observed in the distribution.
+
+The central 50% of observations lies between 1026.5 and 2056.0, resulting in an interquartile range of 1029.5. The standard deviation is approximately 752.71 listings, while the coefficient of variation is approximately 43.31%, indicating substantial relative variability in the number of active listings.
+
+The skewness coefficient is approximately 0.65, suggesting a moderately right-skewed distribution. Some observations with relatively high numbers of listings extend the upper tail and pull the mean above the median.
+
+The excess kurtosis is approximately -0.79, indicating a platykurtic distribution with lighter tails than a normal distribution.
+
+#### 5.2.5 Months Inventory
+
+The months inventory ranges from 3.4 to 14.9 months, with a mean of approximately 9.19 months and a median of 8.95 months. The mean and median are very close, which is consistent with the near-zero skewness observed in the distribution.
+
+The central 50% of observations lies between 7.80 and 10.95 months, resulting in an interquartile range of 3.15 months. The standard deviation is approximately 2.30 months, while the coefficient of variation is approximately 25.06%, indicating moderate relative dispersion around the average inventory level.
+
+The skewness coefficient is approximately 0.04, suggesting an approximately symmetric distribution, with no relevant evidence of asymmetry.
+
+The excess kurtosis is approximately -0.17, which is close to zero. Therefore, the distribution can be considered approximately mesokurtic, with only a very slight tendency toward lighter tails than a normal distribution.
+
+### 5.3 Categorical and Temporal Variables
+
+For categorical and temporal variables, absolute and relative frequency distributions will be considered. For city, the Gini heterogeneity index will also be calculated to assess how evenly the observations are distributed across the different cities.
+
+The categorical and temporal variables considered in this section are `city`, `year`, and `month`.
+
+#### 5.3.1 Variable City
+##### 5.3.1.1 Frequency Table
+```{r}
+abs_freq_city <- table(real_estate$city)
+rel_freq_city <- prop.table(abs_freq_city)
+
+
+city_frequency <- data.frame(
+  City = names(abs_freq_city),
+  Frequency = as.vector(abs_freq_city),
+  Percentage = round(as.vector(rel_freq_city) * 100, 2)
+)
+
+knitr::kable(
+  city_frequency,
+  col.names = c(
+    "City",
+    "Absolute Frequency",
+    "Relative Frequency (%)"
+  ),
+  caption = "Frequency Distribution by City"
+)
+```
+
+##### 5.3.1.2 Gini Heterogeneity Index
+
+The normalized Gini heterogeneity index is used to assess how evenly observations are distributed across the categories of a qualitative variable.
+
+```{r}
+gini_city <- gini.index(real_estate$city)
+
+knitr::kable(
+  data.frame(
+    Measure = "Normalized Gini heterogeneity index",
+    Value = gini_city
+  ),
+  digits = 2,
+  caption = "Gini Heterogeneity for City",
+  row.names = FALSE
+)
+```
+
+The normalized Gini heterogeneity index for city is equal to 1, indicating maximum heterogeneity in the distribution of observations across cities. This result reflects the perfectly balanced structure of the dataset, with the same number of observations for each city.
+
+#### 5.3.2 Variable Year
+##### 5.3.2.1 Frequency Table
+
+```{r}
+abs_freq_year <- table(real_estate$year)
+rel_freq_year <- prop.table(abs_freq_year)
+
+year_frequency <- data.frame(
+  Year = names(abs_freq_year),
+  Frequency = as.vector(abs_freq_year),
+  Percentage = round(as.vector(rel_freq_year) * 100, 2)
+)
+
+knitr::kable(
+  year_frequency,
+  col.names = c(
+    "Year",
+    "Absolute Frequency",
+    "Relative Frequency (%)"
+  ),
+  caption = "Frequency Distribution by Year"
+)
+```
+
+Each year contains 48 observations, corresponding to 20% of the total dataset. This indicates that the dataset is evenly distributed across the period from 2010 to 2014, with each year receiving the same representation. Therefore, comparisons across years are not affected by differences in the number of observations available for each year.
+
+#### 5.3.3 Variable Month
+##### 5.3.3.1 Frequency Table
+
+```{r}
+abs_freq_month <- table(real_estate$month_name)
+rel_freq_month <- prop.table(abs_freq_month)
+
+month_frequency <- data.frame(
+  Month = names(abs_freq_month),
+  Frequency = as.vector(abs_freq_month),
+  Percentage = round(as.vector(rel_freq_month) * 100, 2)
+)
+
+knitr::kable(
+  month_frequency,
+  col.names = c(
+    "Month",
+    "Absolute Frequency",
+    "Relative Frequency (%)"
+  ),
+  caption = "Frequency Distribution by Month"
+)
+```
+
+Each month contains 20 observations, corresponding to approximately 8.33% of the total dataset. This indicates that the dataset is evenly distributed across the twelve months of the year. Such a balanced monthly structure is particularly useful for seasonal comparisons, since no month is over- or under-represented. The original `month` variable is treated as a cyclical categorical variable, while the ordered `month_name` factor is used only to preserve the natural January-to-December sequence in subsequent tables and visualizations.
+
+### 5.4 Overall Comparison of Quantitative Variables
+
+The summary tables presented in Section 5.2 allow the quantitative variables to be compared directly without repeating the same calculations for each variable.
+
+The descriptive statistics reveal relevant differences in the behavior of the quantitative variables. In terms of **relative variability**, `volume` shows the **highest coefficient of variation (53.71%)**, followed by `listings` (43.31%) and `sales` (41.42%), while `median_price` is comparatively more stable, with the **lowest coefficient of variation (17.08%)**.
+
+Regarding distribution shape, `sales`, `volume`, and `listings` show **moderate positive skewness**, indicating a tendency toward relatively high values in the right tail. Conversely, `median_price` presents **mild negative skewness**, while `months_inventory` is **approximately symmetric**. The relationship between **mean and median** is consistent with these skewness patterns.
+
+In terms of kurtosis, `sales`, `median_price`, and `listings` show **negative excess kurtosis**, indicating somewhat **lighter tails than a normal distribution**. `volume` and `months_inventory` have excess kurtosis values close to zero, suggesting distributions that are **approximately mesokurtic**.
+
+## 6. Variability and Asymmetry Analysis
+### 6.1 Variable with the Highest Relative Variability
+Since the quantitative variables are measured on different scales and in different units, the **coefficient of variation (CV)** is used to compare their relative variability. Unlike the standard deviation, the CV expresses dispersion relative to the mean and therefore allows a more meaningful comparison across variables.
+
+```{r}
+cv_comparison <- data.frame(
+  Variable = rownames(descriptive_stats),
+  CV = descriptive_stats[, "CV"]
+)
+
+cv_comparison <- cv_comparison[
+  order(cv_comparison$CV, decreasing = TRUE),
+]
+
+knitr::kable(
+  cv_comparison,
+  digits = 2,
+  col.names = c(
+    "Variable",
+    "Coefficient of Variation (%)"
+  ),
+  caption = "Relative Variability by Quantitative Variable",
+  row.names = FALSE
+)
+```
+
+Based on the coefficient of variation, `volume` shows the highest relative variability, with a CV of **53.71%**. This indicates that total sales volume is the quantitative variable that varies the most relative to its mean among those considered.
+
+### 6.2 Variable with the Highest Asymmetry
+
+To compare the degree of asymmetry across the quantitative variables, the **absolute value of skewness** is considered. This allows the magnitude of asymmetry to be assessed independently of its direction.
+
+```{r}
+skewness_comparison <- data.frame(
+  Variable = rownames(descriptive_stats),
+  Skewness = descriptive_stats[, "Skewness"],
+  Absolute_Skewness = abs(descriptive_stats[, "Skewness"])
+)
+
+skewness_comparison <- skewness_comparison[
+  order(skewness_comparison$Absolute_Skewness, decreasing = TRUE),
+]
+
+knitr::kable(
+  skewness_comparison,
+  digits = 2,
+  col.names = c(
+    "Variable",
+    "Skewness",
+    "Absolute Skewness"
+  ),
+  caption = "Asymmetry by Quantitative Variable",
+  row.names = FALSE
+)
+```
+
+Among the variables analyzed, `volume` shows the highest absolute skewness, with a value of approximately **0.88**. Since the skewness is positive, the distribution is **moderately right-skewed**, indicating the presence of relatively high sales-volume observations in the upper tail.
+
+## 7. Grouped Frequency Distribution and Gini Heterogeneity
+
+In this section, a quantitative variable is grouped into classes in order to construct a frequency distribution and analyze how observations are distributed across the resulting intervals. The grouped distribution will then be represented graphically, and the normalized Gini heterogeneity index will be calculated to assess the degree of heterogeneity across the classes.
+
+The variable `sales` is selected for this analysis. This variable represents the total number of property sales and is characterized by a sufficiently wide range of observed values, from 79 to 423, making it suitable for grouping into meaningful and interpretable classes.
+
+### 7.1 Definition of the Number of Classes
+
+Before constructing the grouped frequency distribution, it is necessary to determine an appropriate number of classes. Rather than selecting the number of intervals arbitrarily, **Sturges' rule** is used as a statistical criterion based on the sample size.
+
+```{r}
+n <- nrow(real_estate)    # Number of observations
+
+k <- 1 + 3.322 * log10(n) # Sturges' rule for the number of classes
+
+k_rounded <- round(k)     # Number of classes used in the analysis
+```
+
+Sturges' rule suggests approximately 8.91 classes. Therefore, the number of classes is rounded to **9**.
+
+### 7.2 Definition of Class Width
+Once the number of classes has been established, the theoretical class width is obtained by dividing the range of `sales` by the number of classes.
+
+```{r}
+sales_range <- max(real_estate$sales) - min(real_estate$sales)  # Range of sales
+
+class_width <- sales_range / k_rounded                          # Theoretical class width
+```
+
+The theoretical class width is approximately **38.22 sales**. To obtain more readable and interpretable intervals, the class width is rounded to **40 sales**.
+
+```{r}
+sales_breaks <- seq(
+  from = 79,       # Minimum observed value
+  to = 439,        # Upper boundary covering the maximum observed value
+  by = 40          # Selected class width
+)
+```
+
+### 7.3 Construction of the Sales Classes
+
+Based on the selected class width of 40 sales, nine equally spaced intervals are constructed. The class boundaries extend slightly beyond the maximum observed value in order to preserve equal class widths.
+
+```{r}
+sales_labels <- c(
+  "79-118",
+  "119-158",
+  "159-198",
+  "199-238",
+  "239-278",
+  "279-318",
+  "319-358",
+  "359-398",
+  "399-438"
+)
+
+real_estate$sales_class <- cut(
+  real_estate$sales,
+  breaks = sales_breaks,
+  labels = sales_labels,
+  right = FALSE,
+  include.lowest = TRUE
+)
+```
+
+### 7.4 Grouped Frequency Distribution
+The grouped frequency distribution of `sales` is constructed using the nine previously defined classes. Both absolute and relative frequencies are reported in order to examine how the observations are distributed across the different sales intervals.
+
+```{r}
+abs_freq_sales_class <- table(real_estate$sales_class)       # Absolute frequencies
+rel_freq_sales_class <- prop.table(abs_freq_sales_class)     # Relative frequencies
+
+sales_class_frequency <- data.frame(
+  Sales_Class = names(abs_freq_sales_class),
+  Frequency = as.vector(abs_freq_sales_class),
+  Percentage = as.vector(rel_freq_sales_class) * 100
+)
+
+# Preserve the natural order of the sales classes
+sales_class_frequency$Sales_Class <- factor(
+  sales_class_frequency$Sales_Class,
+  levels = sales_labels,
+  ordered = TRUE
+)
+
+knitr::kable(
+  sales_class_frequency,
+  digits = 2,
+  col.names = c(
+    "Sales Class",
+    "Absolute Frequency",
+    "Relative Frequency (%)"
+  ),
+  caption = "Grouped Frequency Distribution of Sales"
+)
+```
+
+The grouped frequency distribution shows that most observations are concentrated in the lower and intermediate `sales` classes, while the frequency progressively decreases for higher sales values. This pattern suggests a **positively skewed distribution**, with a longer right tail. This result is consistent with the previously calculated skewness of approximately **0.72**, indicating moderate right-skewness.
+
+### 7.5 Bar Chart of the Grouped Sales Distribution
+
+The grouped frequency distribution is represented through a bar chart to provide a visual overview of how the observations are distributed across the different `sales` classes.
+
+```{r}
+ggplot(
+  sales_class_frequency,
+  aes(x = Sales_Class, y = Frequency)
+) +
+  geom_col() +
+  labs(
+    title = "Grouped Frequency Distribution of Sales",
+    x = "Sales Class",
+    y = "Absolute Frequency"
+  ) +
+  theme_minimal()
+```
+
+### 7.6 Gini Heterogeneity Index of Sales Classes
+
+The normalized Gini heterogeneity index is calculated on the grouped `sales` variable to assess how evenly the observations are distributed across the nine sales classes.
+
+```{r}
+gini_sales_class <- gini.index(real_estate$sales_class)
+
+knitr::kable(
+  data.frame(
+    Measure = "Normalized Gini heterogeneity index",
+    Value = gini_sales_class
+  ),
+  digits = 3,
+  caption = "Gini Heterogeneity for Grouped Sales Classes",
+  row.names = FALSE
+)
+```
+
+The normalized Gini heterogeneity index for the grouped `sales` variable is approximately **0.946**. This relatively high value indicates that the observations are distributed across several sales classes rather than being concentrated in only one or a few intervals.
+
+Although the first three classes contain a large share of the observations, the remaining observations are still spread across the other classes. Therefore, the distribution shows a high degree of heterogeneity across the nine intervals.
+
+This result should not be confused with the positive skewness previously observed for `sales`. The skewness describes the **shape and direction of the distribution**, while the Gini heterogeneity index measures how evenly observations are distributed across the defined classes. For this reason, a distribution can be moderately right-skewed and still present a high Gini heterogeneity index.
+
+## 8. Empirical Probability Analysis
+
+Empirical probabilities are estimated using the relative frequency of the events observed in the dataset. Considering each city-year-month observation as a statistical unit, the probability of an event is calculated as the proportion of observations satisfying the specified condition over the total number of observations.
+
+```{r}
+prob_beaumont <- mean(real_estate$city == "Beaumont")
+prob_july <- mean(real_estate$month == 7)
+
+prob_december_2012 <- mean(
+  real_estate$year == 2012 &
+  real_estate$month == 12
+)
+
+probability_summary <- data.frame(
+  Event = c(
+    "Beaumont",
+    "July",
+    "December 2012"
+  ),
+  Probability = round(
+    c(
+      prob_beaumont,
+      prob_july,
+      prob_december_2012
+    ),
+    4
+  ),
+  Percentage = round(
+    c(
+      prob_beaumont,
+      prob_july,
+      prob_december_2012
+    ) * 100,
+    2
+  )
+)
+
+knitr::kable(
+  probability_summary,
+  col.names = c(
+    "Event",
+    "Empirical Probability",
+    "Percentage (%)"
+  ),
+  caption = "Empirical Probability Summary",
+  row.names = FALSE
+)
+```
+
+### 8.1 Probability of Beaumont
+
+The empirical probability that a randomly selected observation refers to `Beaumont` is **0.25**, or **25%**. This result is consistent with the balanced structure of the dataset, since Beaumont accounts for 60 of the 240 observations.
+
+### 8.2 Probability of July
+
+The empirical probability that a randomly selected observation refers to `July` is approximately **0.0833**, or **8.33%**. Each month contains 20 observations out of a total of 240.
+
+### 8.3 Probability of December 2012
+
+The empirical probability that a randomly selected observation refers specifically to `December 2012` is approximately **0.0167**, or **1.67%**. There are four observations corresponding to this period, one for each city, out of the 240 observations in the dataset.
+
+
+## 9. Creation of New Variables
+
+Two additional indicators are derived from the available variables in order to provide further insight into the real estate market: an estimated average property price and a measure of listing effectiveness.
+
+### 9.1 Average Property Price
+
+The variable `avg_property_price` is calculated as the total sales volume, converted from millions of USD to USD, divided by the number of sales. This provides an estimate of the average transaction value per property sold for each city-year-month observation.
+
+```{r}
+real_estate$avg_property_price <- 
+  (real_estate$volume * 1000000) / real_estate$sales
+```
+
+```{r}
+avg_property_price_stats <- summary(
+  real_estate$avg_property_price
+)
+
+avg_property_price_summary <- data.frame(
+  Statistic = names(avg_property_price_stats),
+  Value = as.numeric(avg_property_price_stats)
+)
+
+knitr::kable(
+  avg_property_price_summary,
+  digits = 2,
+  format.args = list(
+    scientific = FALSE,
+    big.mark = ","
+  ),
+  caption = "Summary of Average Property Price",
+  row.names = FALSE
+)
+```
+
+The estimated `avg_property_price` ranges from approximately **$97,010** to **$213,234**, with a mean of about **$154,320** and a median of approximately **$156,588**. These values represent the average transaction value per property sold and should not be confused with `median_price`, which describes the central position of sale prices rather than their arithmetic average.
+
+### 9.2 Listing Effectiveness
+
+The variable `listing_effectiveness` is created to compare the number of sales with the number of active listings. It is expressed as a percentage and provides an indication of sales performance relative to the active listing stock. This indicator should be interpreted as a descriptive proxy for sales activity relative to active listings, rather than as a direct measure of marketing effectiveness.
+
+
+```{r}
+real_estate$listing_effectiveness <- 
+  (real_estate$sales / real_estate$listings) * 100
+```
+
+```{r}
+listing_effectiveness_stats <- summary(
+  real_estate$listing_effectiveness
+)
+
+listing_effectiveness_summary <- data.frame(
+  Statistic = names(listing_effectiveness_stats),
+  Value = as.numeric(listing_effectiveness_stats)
+)
+
+knitr::kable(
+  listing_effectiveness_summary,
+  digits = 2,
+  caption = "Summary of Listing Effectiveness",
+  row.names = FALSE
+)
+```
+
+The `listing_effectiveness` indicator ranges from approximately **5.01%** to **38.71%**, with a mean of **11.87%** and a median of **10.96%**. The central 50% of the observations lies between approximately **8.98%** and **13.49%**.
+
+These results indicate that the relationship between monthly sales and active listings varies substantially across city-year-month observations. Higher values of `listing_effectiveness` indicate stronger sales activity relative to the active listing stock, while lower values indicate weaker relative sales performance. However, the indicator should not be interpreted as the exact percentage of listed properties that were sold, since `sales` and `listings` represent different market flows and stocks.
+
+## 10. Conditional Analysis
+
+The analysis is extended by conditioning selected quantitative variables on `city`, `year`, and `month`. Group-specific means and standard deviations are calculated to identify geographical differences, temporal trends, and possible seasonal patterns in the Texas real estate market.
+
+### 10.1 Conditional Analysis by City
+
+```{r}
+sales_by_city <- real_estate %>%
+  group_by(city) %>%
+  summarise(
+    Mean_Sales = mean(sales),
+    SD_Sales = sd(sales)
+  )
+
+knitr::kable(
+  sales_by_city,
+  digits = 2,
+  col.names = c(
+    "City",
+    "Mean Sales",
+    "SD Sales"
+  ),
+  caption = "Mean and Standard Deviation of Sales by City"
+)
+```
+
+The conditional analysis by `city` reveals clear differences in sales activity across the four real estate markets. `Tyler` records the highest average number of sales, with approximately **269.75 sales per month**, followed by `Bryan-College Station` (**205.97**) and `Beaumont` (**177.38**). `Wichita Falls` shows the lowest average, with approximately **116.07 sales per month**.
+
+In terms of absolute variability, `Bryan-College Station` presents the highest standard deviation (**84.98**), indicating greater fluctuations in monthly sales over the observed period. In contrast, `Wichita Falls` has the lowest standard deviation (**22.15**), suggesting comparatively more stable monthly sales.
+
+### 10.2 Conditional Analysis by Year
+
+The analysis is conditioned on `year` to examine how the central level and variability of property prices change over time. For each year, the mean and standard deviation of `median_price` are calculated.
+
+```{r}
+median_price_by_year <- real_estate %>%
+  group_by(year) %>%
+  summarise(
+    Mean_Median_Price = mean(median_price),
+    SD_Median_Price = sd(median_price)
+  )
+
+# Create a display copy so that years are not formatted
+# with a thousands separator in the final table
+median_price_by_year_display <- median_price_by_year
+median_price_by_year_display$year <- as.character(
+  median_price_by_year_display$year
+)
+
+knitr::kable(
+  median_price_by_year_display,
+  digits = 2,
+  format.args = list(
+    scientific = FALSE,
+    big.mark = ","
+  ),
+  col.names = c(
+    "Year",
+    "Mean Median Price",
+    "SD Median Price"
+  ),
+  caption = "Mean and Standard Deviation of Median Price by Year"
+)
+```
+
+The conditional analysis by `year` shows a slight decline in the average `median_price` between 2010 and 2011, followed by a gradual increase over the subsequent years. The average median price rises from approximately **$127,854 in 2011** to **$139,481 in 2014**, suggesting an upward price trend toward the end of the observed period.
+
+The standard deviation remains relatively stable between 2010 and 2013, at around **$21,000–$22,000**, but increases to approximately **$25,625 in 2014**. This suggests greater dispersion in median prices across cities and months during the final year of the dataset.
+
+### 10.3 Conditional Analysis by Month
+
+The analysis is conditioned on `month` to investigate possible seasonal patterns in sales activity. For each month, the mean and standard deviation of `sales` are calculated across all cities and years.
+
+```{r}
+sales_by_month <- real_estate %>%
+  group_by(month_name) %>%
+  summarise(
+    Mean_Sales = mean(sales),
+    SD_Sales = sd(sales)
+  )
+
+knitr::kable(
+  sales_by_month,
+  digits = 2,
+  col.names = c(
+    "Month",
+    "Mean Sales",
+    "SD Sales"
+  ),
+  caption = "Mean and Standard Deviation of Sales by Month"
+)
+```
+
+The conditional analysis by `month` suggests a clear seasonal pattern in sales activity. Average sales increase substantially from the winter months into spring, reaching their highest level in `June` with approximately **243.55 sales**. Sales remain relatively high throughout the summer and then decline during the autumn months. `January` records the lowest average sales level, with approximately **127.40 sales**. A slight increase is observed again in `December` compared with `November`.
+
+This pattern supports the cyclical interpretation of `month`, as sales activity appears to follow a recurring annual structure characterized by stronger activity during spring and summer and weaker activity during autumn and winter.
+
+The standard deviation also tends to be higher during the most active months. In particular, `June` and `July` show standard deviations of approximately **95–96 sales**, compared with **43.38** in `January`. This suggests that sales activity is not only higher during the summer period, but also more variable across cities and years.
+
+### 10.4 Deeper Analysis of Monthly Sales Variability
+
+The previous monthly analysis showed that the months with the highest average sales also tend to present greater variability. To investigate this pattern further, monthly sales are analyzed jointly with `city` and `year` in order to assess whether the observed variability is associated with geographical differences, temporal differences, or both.
+
+#### 10.4.1 Monthly Sales by City
+
+To investigate whether the higher variability observed during the most active months is associated with geographical differences, the analysis is further conditioned on both `month` and `city`.
+
+For each month-city combination, the mean and standard deviation of `sales` are calculated across the five years included in the dataset. This makes it possible to assess whether the seasonal pattern is shared across all cities or whether specific local markets contribute more strongly to the variability observed at the monthly level.
+
+```{r}
+sales_by_month_city <- real_estate %>%
+  group_by(month_name, city) %>%
+  summarise(
+    Mean_Sales = mean(sales),
+    SD_Sales = sd(sales),
+    .groups = "drop"
+  )
+
+knitr::kable(
+  sales_by_month_city,
+  digits = 2,
+  col.names = c(
+    "Month",
+    "City",
+    "Mean Sales",
+    "SD Sales"
+  ),
+  caption = "Mean and Standard Deviation of Sales by Month and City"
+)
+```
+
+##### Graphical Representation
+
+```{r}
+ggplot(
+  sales_by_month_city,
+  aes(
+    x = month_name,
+    y = Mean_Sales,
+    group = city,
+    color = city
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Average Monthly Sales by City",
+    subtitle = "Mean sales across the 2010–2014 period",
+    x = "Month",
+    y = "Mean Sales",
+    color = "City"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The joint analysis of `month` and `city` shows that the higher variability observed during the most active months is partly associated with substantial differences across local markets. `Tyler` consistently records the highest or among the highest average sales levels, while `Wichita Falls` generally shows the lowest values. These geographical differences become particularly pronounced during spring and summer.
+
+For example, in `June`, average sales range from approximately **122.8** in `Wichita Falls` to **327.0** in `Tyler`, indicating considerable dispersion across cities. `Bryan-College Station` also reaches a high average of **319.4 sales** during the same month.
+
+The within-city standard deviations further suggest that temporal variability differs across local markets. In particular, `Bryan-College Station` records a standard deviation of approximately **95.33 sales in July**, whereas `Wichita Falls` shows a much lower value of approximately **19.07**. Therefore, the higher monthly variability observed during the most active periods appears to reflect both differences between cities and, for some markets, substantial fluctuations across years.
+
+#### 10.4.2 Monthly Sales by Year
+
+To investigate whether the seasonal pattern and the higher variability observed during the most active months also differ across years, the analysis is further conditioned on both `month` and `year`.
+
+For each month-year combination, the mean and standard deviation of `sales` are calculated across the four cities. This allows the seasonal sales pattern to be compared across the five years and helps identify whether specific years contribute more strongly to the observed monthly variability.
+
+```{r}
+sales_by_month_year <- real_estate %>%
+  group_by(month_name, year) %>%
+  summarise(
+    Mean_Sales = mean(sales),
+    SD_Sales = sd(sales),
+    .groups = "drop"
+  )
+
+knitr::kable(
+  sales_by_month_year,
+  digits = 2,
+  col.names = c(
+    "Month",
+    "Year",
+    "Mean Sales",
+    "SD Sales"
+  ),
+  caption = "Mean and Standard Deviation of Sales by Month and Year"
+)
+```
+
+##### Graphical Representation
+```{r}
+ggplot(
+  sales_by_month_year,
+  aes(
+    x = month_name,
+    y = Mean_Sales,
+    group = factor(year),
+    color = factor(year)
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Average Monthly Sales by Year",
+    subtitle = "Mean sales across the four cities",
+    x = "Month",
+    y = "Mean Sales",
+    color = "Year"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The analysis by `month` and `year` suggests two main patterns. First, average sales generally increase over the observed period, with more recent years tending to show higher sales levels than earlier years.
+
+Second, a similar seasonal pattern appears across the different years. Sales tend to increase during spring, reach higher levels around the summer months, and then decline toward the end and beginning of the year. This recurring structure suggests that the seasonal behavior of the real estate market is relatively consistent across the 2010–2014 period.
+
+The higher standard deviations observed in some recent summer months also indicate that differences across cities become particularly pronounced during periods of stronger market activity.
+
+## 11. Data Visualization with ggplot2
+
+### 11.1 Median Price Distribution by City
+
+```{r}
+ggplot(
+  real_estate,
+  aes(x = city, y = median_price)
+) +
+  geom_boxplot() +
+  labs(
+    title = "Distribution of Median Property Prices by City",
+    x = "City",
+    y = "Median Price (USD)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 20, hjust = 1)
+  )
+```
+
+The boxplot highlights clear differences in the distribution of `median_price` across the four cities. `Bryan-College Station` shows the highest median property prices, followed by `Tyler`, while `Wichita Falls` records the lowest central price level.
+
+In terms of dispersion, `Wichita Falls` appears to have a relatively wider interquartile range, indicating greater variability in the central 50% of median prices. `Bryan-College Station` and `Beaumont` show more compact distributions, while `Tyler` presents an intermediate level of dispersion.
+
+A few upper outliers are also visible for `Beaumont`, `Bryan-College Station`, and `Wichita Falls`, indicating some city-month-year observations with unusually high median prices compared with the typical distribution of each local market. Overall, the graph suggests that both the central price level and the degree of variability differ meaningfully across cities.
+
+### 11.2 Sales Volume Distribution by City and Year
+
+The distribution of total sales `volume` is compared across cities and years using grouped boxplots. City is represented on the horizontal axis, while `year` is encoded through the fill aesthetic so that yearly distributions can be compared directly within each local market.
+
+```{r}
+ggplot(
+  real_estate,
+  aes(
+    x = city,
+    y = volume,
+    fill = factor(year)
+  )
+) +
+  geom_boxplot() +
+  labs(
+    title = "Distribution of Sales Volume by City and Year",
+    subtitle = "Total sales volume expressed in USD millions",
+    x = NULL,
+    y = "Sales Volume (USD millions)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The boxplots show clear differences in the distribution of `volume` across both cities and years. `Tyler` generally records the highest sales volumes, while `Wichita Falls` consistently shows the lowest levels. `Bryan-College Station` appears to display substantial variability in several years, particularly from 2012 onward, as indicated by the wide boxes and long whiskers.
+
+From a temporal perspective, the distributions suggest a general increase in sales volume over the observed period, especially for `Tyler` and `Bryan-College Station`. Overall, the graph highlights the presence of both geographical differences and temporal variation in total sales volume across the Texas real estate markets considered.
+
+### 11.3 Monthly Total Sales by City
+
+Total sales are aggregated by `month` and `city` in order to compare the contribution of each local market to monthly sales activity. A stacked bar chart is first used to represent absolute sales totals, followed by a normalized version to compare the relative composition across months.
+
+```{r}
+monthly_sales_city <- real_estate %>%
+  group_by(month_name, city) %>%
+  summarise(
+    Total_Sales = sum(sales),
+    .groups = "drop"
+  )
+```
+
+#### 11.3.1 Stacked Bar Chart
+
+```{r}
+ggplot(
+  monthly_sales_city,
+  aes(
+    x = month_name,
+    y = Total_Sales,
+    fill = city
+  )
+) +
+  geom_col() +
+  labs(
+    title = "Total Monthly Sales by City",
+    subtitle = "Aggregated sales across the 2010–2014 period",
+    x = "Month",
+    y = "Total Sales"
+  ) +
+  guides(fill = guide_legend(title = NULL)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The stacked bar chart confirms a clear seasonal pattern in total sales. `June` records the highest overall number of sales, followed by `May`, `July`, and `August`, while `January` shows the lowest total sales activity. Overall, sales increase considerably during spring, remain high throughout the summer, and decline during autumn and winter.
+
+`Tyler` provides the largest contribution to total sales across all months. However, the contribution of `Bryan-College Station` becomes particularly substantial during the peak sales period, especially between `May` and `July`. This suggests that the increase in overall market activity during spring and summer is not driven by a single city, although the relative contribution of individual local markets differs across the year.
+
+#### 11.3.2 Normalized Stacked Bar Chart
+
+A normalized stacked bar chart is used to compare the relative contribution of each city to total monthly sales. Since each monthly bar is scaled to 100%, the graph emphasizes differences in composition rather than differences in absolute sales volume.
+
+```{r}
+ggplot(
+  monthly_sales_city,
+  aes(
+    x = month_name,
+    y = Total_Sales,
+    fill = city
+  )
+) +
+  geom_col(position = "fill") + # Position = "fill" to normalize the graph
+  labs(
+    title = "Relative Composition of Monthly Sales by City",
+    subtitle = "Each bar represents 100% of monthly sales",
+    x = "Month",
+    y = "Share of Total Sales"
+  ) +
+  guides(fill = guide_legend(title = NULL)) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The normalized stacked bar chart confirms the pattern observed in the previous absolute-frequency graph. Although `Tyler` remains one of the largest contributors to monthly sales throughout the year, the relative contribution of `Bryan-College Station` increases noticeably during the spring and summer months, particularly between `May` and `July`.
+
+This indicates that the stronger contribution of `Bryan-College Station` during the peak season is not simply the result of an overall increase in market activity. Its share of total monthly sales also becomes larger during these months. In contrast, the relative contribution of the other cities remains more stable or decreases slightly during the same period.
+
+Therefore, the normalized graph complements the absolute stacked bar chart by showing that both the total level of sales and the relative composition of the market change across the annual cycle.
+
+#### 11.3.3 Difference Between `geom_bar()` and `geom_col()`
+
+`geom_bar()` and `geom_col()` are both used to create bar charts, but they differ in how bar heights are determined. By default, `geom_bar()` counts the number of observations associated with each category, while `geom_col()` uses values that have already been calculated and supplied through the `y` aesthetic.
+
+In this analysis, `geom_col()` is appropriate because total sales have already been computed for each month-city combination using `sum(sales)`.
+
+#### 11.3.4 Monthly Sales by City and Year
+
+To extend the monthly sales analysis, the variable `year` is incorporated into the visualization. The aim is to verify whether the seasonal pattern and the relative contribution of each city remain consistent across the different years of the dataset.
+
+Monthly sales are therefore analyzed jointly by `month`, `city`, and `year`. Separate panels are used for each year in order to preserve readability and avoid overcrowding the graph.
+
+```{r}
+monthly_sales_city_year <- real_estate %>%
+  group_by(year, month_name, city) %>%
+  summarise(
+    Total_Sales = sum(sales),
+    .groups = "drop"
+  )
+```
+
+```{r, fig.width=9, fig.height=8}
+ggplot(
+  monthly_sales_city_year,
+  aes(
+    x = month_name,
+    y = Total_Sales,
+    fill = city
+  )
+) +
+  geom_col() +
+  facet_wrap(
+    ~ year,
+    ncol = 2,
+    scales = "free_x" # Keep month labels visible in each yearly panel
+  ) +
+  scale_x_discrete(labels = month.abb) + # month.abb to abbreviate months names
+  labs(
+    title = "Monthly Sales by City and Year",
+    subtitle = "Comparison of monthly sales composition across the 2010–2014 period",
+    x = "Month",
+    y = "Total Sales"
+  ) +
+  guides(fill = guide_legend(title = NULL)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+The year-specific stacked bar charts show that the seasonal pattern observed in the aggregated analysis is generally repeated across the 2010–2014 period. In each year, sales tend to increase from the beginning of the year toward spring and summer, before declining again during the autumn and winter months.
+
+At the same time, the overall height of the monthly bars tends to be greater in the more recent years, particularly in 2013 and 2014. This suggests a general increase in sales activity over time alongside a relatively persistent seasonal structure.
+
+The contribution of the individual cities also changes across months and years. `Tyler` remains an important contributor throughout the period, while `Bryan-College Station` becomes especially relevant during several spring and summer months. Overall, incorporating `year` confirms that both temporal growth and seasonal variation contribute to the observed sales dynamics.
+
+### 11.4 Historical Trend of Listing Effectiveness
+
+A line chart comparing monthly `sales` across historical years was previously presented in Section 10.4.2. The following analysis extends the historical visualization to the derived `listing_effectiveness` indicator in order to explore a different dimension of market behavior.
+
+The historical evolution of `listing_effectiveness` is analyzed to examine how sales activity relative to active listings changes across the 2010–2014 period and whether different cities follow similar or distinct patterns.
+
+To represent the monthly observations in their correct chronological order, `year` and `month` are combined into a single time variable. Higher values of `listing_effectiveness` indicate stronger sales activity relative to the active listing stock, while lower values indicate weaker relative sales performance.
+
+```{r}
+real_estate$date <- as.Date(
+  paste(
+    real_estate$year,
+    real_estate$month,
+    "01",
+    sep = "-"
+  )
+)
+```
+
+```{r}
+ggplot(
+  real_estate,
+  aes(
+    x = date,
+    y = listing_effectiveness,
+    color = city,
+    group = city
+  )
+) +
+  geom_line(linewidth = 0.9) +
+  scale_x_date(
+    breaks = as.Date(paste0(2010:2014, "-01-01")),
+    date_labels = "%Y",
+    limits = as.Date(c("2010-01-01", "2014-12-31")),
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Historical Trend of Listing Effectiveness by City",
+    subtitle = "Monthly sales relative to active listings, 2010–2014",
+    x = "Year",
+    y = "Listing Effectiveness (%)"
+  ) +
+  guides(color = guide_legend(title = NULL)) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+The historical analysis of `listing_effectiveness` reveals substantial differences across cities. `Bryan-College Station` shows the most distinctive pattern, with increasingly pronounced peaks over the 2010–2014 period. These peaks tend to occur around the middle of the year and become particularly strong in 2013 and 2014, indicating substantially stronger sales activity relative to the active listing stock during these periods.
+
+A recurring seasonal pattern is particularly evident for `Bryan-College Station`, where `listing_effectiveness` generally increases during the central months of the year before declining again. `Tyler` shows a similar but considerably more moderate pattern, with smaller fluctuations over time.
+
+In contrast, `Beaumont` and `Wichita Falls` display more irregular short-term fluctuations, making their seasonal patterns less pronounced. Overall, the graph suggests that both geographical and temporal differences affect the relationship between sales and active listings, with `Bryan-College Station` showing the most substantial increase in relative sales performance over the observed period.
+
+However, higher `listing_effectiveness` should not be interpreted as direct evidence that individual listings are more effective. Since the indicator is defined as the ratio between `sales` and `listings`, an increase may result from higher sales, lower active listings, or more generally from sales increasing relative to the active listing stock.
+
+
+#### 11.4.1 Follow-up Analysis: Bryan-College Station
+
+The previous line chart showed a particularly strong increase in `listing_effectiveness` for `Bryan-College Station`, especially during the central months of the year and in the later part of the 2010–2014 period.
+
+To better understand this pattern, `sales` and `listings` are examined separately for `Bryan-College Station`. Since `listing_effectiveness` is defined as the ratio between `sales` and `listings`, this follow-up analysis aims to assess whether the observed increase is mainly associated with higher sales activity, lower active listing stock, or a combination of both.
+
+```{r}
+bryan_data <- real_estate %>%
+  filter(city == "Bryan-College Station")
+```
+
+```{r}
+ggplot(
+  bryan_data,
+  aes(x = date, y = sales)
+) +
+  geom_line(linewidth = 0.9) +
+  scale_x_date(
+    breaks = as.Date(paste0(2010:2014, "-01-01")),
+    date_labels = "%Y",
+    limits = as.Date(c("2010-01-01", "2014-12-31")),
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Historical Sales in Bryan-College Station",
+    x = "Year",
+    y = "Sales"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(
+  bryan_data,
+  aes(x = date, y = listings)
+) +
+  geom_line(linewidth = 0.9) +
+  scale_x_date(
+    breaks = as.Date(paste0(2010:2014, "-01-01")),
+    date_labels = "%Y",
+    limits = as.Date(c("2010-01-01", "2014-12-31")),
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Historical Active Listings in Bryan-College Station",
+    x = "Year",
+    y = "Active Listings"
+  ) +
+  theme_minimal()
+```
+
+The follow-up analysis provides additional insight into the strong increase in `listing_effectiveness` observed for `Bryan-College Station`. During the earlier part of the period, `sales` and `listings` show some similarities in their seasonal movements, with both variables tending to increase during more active parts of the year.
+
+From approximately 2013 onward, however, a clearer divergence emerges. Sales reach increasingly high seasonal peaks, while the overall level of active `listings` declines substantially. Although short-term seasonal fluctuations remain present in both series, their longer-term trajectories become increasingly different.
+
+This combination helps explain the pronounced increase in `listing_effectiveness`. Since the indicator is calculated as the ratio between `sales` and `listings`, higher sales together with a declining active listing stock lead to substantially higher values. Therefore, the increase observed for `Bryan-College Station` appears to reflect both stronger sales activity and a reduction in the active listing stock.
+
+## 12. Conclusions and Statistical Recommendations
+
+### 12.1 Main Findings
+
+The analysis reveals substantial geographical, temporal, and seasonal differences across the Texas real estate markets included in the dataset.
+
+From a geographical perspective, the four cities show clearly different market profiles. `Tyler` records the highest average number of monthly sales, while `Wichita Falls` consistently shows the lowest sales activity. The analysis of property prices also reveals differences across local markets, with `Bryan-College Station` generally presenting higher median property prices and `Wichita Falls` lower price levels.
+
+A clear seasonal pattern emerges in sales activity. Average sales increase from the beginning of the year through spring, reach their highest levels during late spring and summer, and subsequently decline during autumn and winter. `June` records the highest average monthly sales, while `January` shows the lowest. This seasonal structure is observed across multiple years, suggesting a relatively persistent annual pattern rather than an effect driven by a single period.
+
+The temporal analysis also suggests an overall strengthening of market activity during the later years of the dataset. Average sales tend to be higher in 2013 and 2014 than in the earlier years. Similarly, the average `median_price` increases toward the end of the observed period, reaching its highest annual level in 2014. At the same time, the greater dispersion observed in some recent periods indicates that market developments are not uniform across cities.
+
+Among the quantitative variables, `volume` presents the highest relative variability, with a coefficient of variation of approximately **53.71%**, and also the greatest degree of asymmetry, with positive skewness of approximately **0.88**. This indicates that total sales value varies considerably across observations and that some relatively high-volume periods contribute to the right tail of its distribution.
+
+The analysis of the derived `listing_effectiveness` indicator provides additional insight into the relationship between sales activity and active listings. `Bryan-College Station` shows a particularly strong increase in this indicator over time, with pronounced peaks during the central months of the year, especially in 2013 and 2014. The follow-up analysis suggests that this pattern is associated with increasingly strong sales activity together with a declining level of active listings. Therefore, the increase in `listing_effectiveness` appears to reflect a growing level of sales relative to the active listing stock rather than direct evidence of greater effectiveness of individual property listings.
+
+### 12.2 Conclusion
+
+The results suggest that market analysis and decision-making should account for both geographical and seasonal differences rather than relying exclusively on aggregated averages across the four cities. Since cities show substantially different levels of sales, prices, variability, and inventory dynamics, city-specific indicators should be monitored separately.
+
+The recurring seasonal pattern in sales should also be incorporated into market planning and forecasting. Comparisons between periods should account for the month of the year, since higher activity during spring and summer and lower activity during winter could otherwise be incorrectly interpreted as structural changes in market performance.
+
+Particular attention should be given to `Bryan-College Station`, where the combination of stronger sales activity and declining active listings produces increasingly high values of `listing_effectiveness`. Monitoring both components of this indicator separately is recommended, since changes in the ratio may result from different movements in sales and listing stock.
+
+The relatively high variability of `volume` also suggests that total sales value should be interpreted carefully. Period averages alone may not adequately represent the market when unusually high-volume observations are present; measures of dispersion and distribution shape should therefore be considered alongside central tendency.
+
+Finally, the present analysis is descriptive and does not establish causal relationships. Further analysis could incorporate additional economic and market variables, such as population growth, employment conditions, mortgage rates, or other local indicators, and apply inferential or predictive methods to investigate the drivers of the patterns identified in this report.
+
+
+
+
