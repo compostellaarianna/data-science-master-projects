@@ -64,6 +64,8 @@ Statistical Interpretation**
 
 🌐 [Open the rendered analysis in your browser](https://compostellaarianna.github.io/data-science-master-projects/texas-real-estate-analysis/)
 
+The rendered report includes a **Show Code / Hide Code** toggle for viewing the underlying R code.
+
 ## Files
 
 - `texas_real_estate_analysis.Rmd` — reproducible R Markdown analysis
