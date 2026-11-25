@@ -17,7 +17,7 @@ time-series forecasting, and large-scale data processing.
 |---|---|---|---|
 | 01 | [Vegan Store Management Software](./01-python-vegan-store) | Python application development | Python, JSON, input validation, data persistence |
 | 02 | [Texas Real Estate Market Analysis](./02-texas-real-estate-analysis) | Exploratory data analysis | R, dplyr, ggplot2, descriptive statistics |
-| 03 | Birth Weight Prediction | Inferential statistics and regression | R, statistical modeling |
+| 03 | [Birth Weight Statistical Analysis](./03-birth-weight-statistical-analysis) | Inferential statistics and regression | R, hypothesis testing, multiple linear regression, model diagnostics |
 | 04 | Insurance Cross-Selling | Machine Learning fundamentals | Classification, clustering, scikit-learn |
 | 05 | Credit Card Approval | Machine Learning models and comparison | SVM, Random Forest, KNN, Neural Networks |
 | 06 | Energy Consumption Forecasting | Advanced ML and time series | Forecasting, recurrent models |
