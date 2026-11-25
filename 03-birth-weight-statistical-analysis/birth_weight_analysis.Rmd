@@ -1,0 +1,2440 @@
+---
+title: "Statistical Analysis and Prediction of Birth Weight"
+author: "Arianna Compostella"
+date: "2026-11-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+
+
+<style>
+/* Report typography and responsive tables */
+html, body { overflow-x: hidden; }
+.main-container { max-width: 1050px !important; }
+.main-container > p { line-height: 1.65; }
+.main-container img { max-width: 100%; height: auto; }
+.main-container pre { max-width: 100%; overflow-x: auto; }
+.table-scroll {
+  width: 100%; max-width: 100%; overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 16px 0 26px;
+}
+.table-scroll table {
+  width: max-content; max-width: none; min-width: min(100%, 480px);
+  border-collapse: collapse; margin: 0 auto;
+  border: 1px solid #d8dee5;
+  font-size: 0.94em;
+}
+.table-scroll th, .table-scroll td {
+  border: 1px solid #d8dee5;
+  padding: 8px 12px;
+  vertical-align: middle;
+  text-align: center;
+  white-space: nowrap;
+}
+.table-scroll thead th { background: #eaf1f7; font-weight: 600; }
+.table-scroll tbody tr:nth-child(even) { background: #f7f9fb; }
+.table-scroll th:first-child, .table-scroll td:first-child { text-align: left; }
+.table-scroll table caption {
+  caption-side: top; text-align: left; font-weight: 600;
+  padding: 0 0 9px; color: #25384c;
+}
+@media (max-width: 600px) {
+  .main-container { padding-left: 14px !important; padding-right: 14px !important; }
+  .table-scroll th, .table-scroll td { padding: 7px 10px; font-size: 0.92em; }
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.main-container table').forEach(function (table) {
+    if (!table.parentElement.classList.contains('table-scroll')) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'table-scroll';
+      table.parentNode.insertBefore(wrapper, table);
+      wrapper.appendChild(table);
+    }
+  });
+});
+</script>
+
+
+
+
+## 1. Introduction
+
+
+> **Course context.** The assignment required starting with a full regression model, documenting the steps towards a more parsimonious specification, and producing an individual prediction. The report follows this sequence. The [assignment brief](docs/assignment.html) provides the full context. This is an educational analysis, not a clinically validated prediction tool.
+
+This project analyses a dataset of **2,500 births** to describe maternal, gestational and neonatal characteristics associated with birth weight. Following data quality checks, descriptive and exploratory analyses are presented, and several hypotheses are tested using inferential statistics.
+
+A multiple linear regression model is then estimated to examine the associations between birth weight and the available predictors. Because the requested prediction concerns a female newborn at **39 weeks of gestation** whose mother is in her **third pregnancy**, a separate model is also developed using only the information provided for that case. Model selection is accompanied by diagnostic checks and sensitivity analyses, with limitations made explicit.
+
+------------------------------------------------------------------------
+
+## 2. Data preparation
+
+### 2.1 Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = TRUE,
+  message = FALSE,
+  fig.align = "center"
+)
+
+library(dplyr)
+library(ggplot2)
+library(moments)
+
+# Functions to display statistical outputs as readable tables.
+tabella_variabili <- function(x) {
+  data.frame(
+    Variabile = names(x),
+    Tipo = vapply(x, function(v) class(v)[1], character(1)),
+    Valori_mancanti = colSums(is.na(x)),
+    row.names = NULL
+  )
+}
+
+tabella_test <- function(test) {
+  fmt <- function(x, cifre = 3) formatC(as.numeric(x), format = "f", digits = cifre)
+  righe <- data.frame(
+    Indicatore = c("Test statistic", "p-value"),
+    Valore = c(
+      paste0(names(test$statistic), " = ", fmt(test$statistic)),
+      format.pval(test$p.value, digits = 3, eps = 0.001)
+    )
+  )
+  if (length(test$parameter) > 0) {
+    righe <- rbind(righe, data.frame(
+      Indicatore = "Degrees of freedom",
+      Valore = fmt(test$parameter, 1)
+    ))
+  }
+  if (length(test$estimate) > 0) {
+    righe <- rbind(righe, data.frame(
+      Indicatore = paste0("Estimate: ", names(test$estimate)),
+      Valore = fmt(test$estimate, 2)
+    ))
+  }
+  if (length(test$null.value) > 0) {
+    righe <- rbind(righe, data.frame(
+      Indicatore = "Reference value (H0)",
+      Valore = fmt(test$null.value, 2)
+    ))
+  }
+  if (length(test$conf.int) == 2) {
+    righe <- rbind(righe, data.frame(
+      Indicatore = c("95% CI — lower bound", "95% CI — upper bound"),
+      Valore = fmt(test$conf.int, 2)
+    ))
+  }
+  colnames(righe) <- c("Measure", "Value")
+  righe
+}
+
+tabella_coefficienti <- function(modello) {
+  risultati <- as.data.frame(coef(summary(modello)))
+  data.frame(
+    Predictor = rownames(risultati),
+    `Estimate beta` = round(risultati[, 1], 2),
+    `Standard error` = round(risultati[, 2], 2),
+    `t statistic` = round(risultati[, 3], 3),
+    `p-value` = format.pval(risultati[, 4], digits = 3, eps = 0.001),
+    check.names = FALSE,
+    row.names = NULL
+  )
+}
+
+tabella_adattamento <- function(modello) {
+  riepilogo <- summary(modello)
+  f <- riepilogo$fstatistic
+  data.frame(
+    Measure = c(
+      "Observations", "R²", "Adjusted R²", "Residual standard error (g)",
+      "F statistic", "Model p-value"
+    ),
+    Value = c(
+      as.character(nobs(modello)),
+      formatC(riepilogo$r.squared, digits = 4, format = "f"),
+      formatC(riepilogo$adj.r.squared, digits = 4, format = "f"),
+      formatC(riepilogo$sigma, digits = 2, format = "f"),
+      formatC(unname(f[1]), digits = 2, format = "f"),
+      format.pval(pf(f[1], f[2], f[3], lower.tail = FALSE), digits = 3, eps = 0.001)
+    )
+  )
+}
+
+# English display labels; the CSV columns and R model objects keep their original names.
+english_columns <- c(
+  "Osservazioni" = "Observations", "Variabili" = "Variables",
+  "Variabile" = "Variable", "Valori_mancanti" = "Missing values",
+  "Minimo" = "Minimum", "Mediana" = "Median", "Media" = "Mean",
+  "Massimo" = "Maximum", "Indicatore" = "Measure", "Valore" = "Value",
+  "Coppia" = "Variable pair", "Correlazione_r" = "Pearson's r",
+  "Frequenza" = "Frequency", "Percentuale" = "Percentage",
+  "n" = "Count", "peso_min" = "Minimum weight (g)",
+  "peso_mediano" = "Median weight (g)", "peso_max" = "Maximum weight (g)",
+  "Peso_medio" = "Mean birth weight (g)", "Deviazione_standard" = "SD (g)",
+  "Osservazioni_utilizzate" = "Observations used",
+  "Con_caso_1551" = "With record 1551", "Senza_caso_1551" = "Without record 1551",
+  "Modello_originale" = "Original model", "Senza_5_casi" = "Without five records",
+  "Differenza" = "Difference", "Modello" = "Model", "Riga" = "Row ID",
+  "Distanza_Cook" = "Cook's distance",
+  "Gestazione" = "Gestational age (weeks)",
+  "Anni.madre" = "Maternal age (years)",
+  "N.gravidanze" = "Previous pregnancies", "Fumatrici" = "Maternal smoking",
+  "Peso" = "Birth weight (g)", "Lunghezza" = "Newborn length (mm)",
+  "Cranio" = "Head circumference (mm)",
+  "Tipo.parto" = "Delivery type", "Ospedale" = "Hospital", "Sesso" = "Sex",
+  "id_riga" = "Row ID", "Originale" = "Original",
+  "Senza_5_influenti" = "Without five influential records",
+  "fit" = "Prediction (g)", "lwr" = "Lower bound (g)",
+  "upr" = "Upper bound (g)", "df" = "Parameters (df)"
+)
+english_model_names <- c(
+  "modello_completo" = "Full model",
+  "modello_senza_eta" = "Without maternal age",
+  "modello_senza_fumo" = "Without maternal smoking",
+  "modello_senza_ospedale" = "Without hospital",
+  "modello_senza_parto" = "Reduced model",
+  "modello_quadratico" = "With quadratic term",
+  "modello_interazione" = "With interaction",
+  "modello_previsione" = "Linear prediction model",
+  "modello_previsione_quad" = "Quadratic prediction model"
+)
+english_coefficients <- c(
+  "(Intercept)" = "Intercept",
+  "SessoM" = "Male (vs female)",
+  "Tipo.partoNat" = "Vaginal (vs caesarean)",
+  "Ospedaleosp2" = "Hospital 2 (vs 1)",
+  "Ospedaleosp3" = "Hospital 3 (vs 1)",
+  "I(Gestazione^2)" = "Gestational age squared",
+  "Gestazione:SessoM" = "Gestational age × male",
+  "SessoM:Gestazione" = "Gestational age × male"
+)
+english_label <- function(x) {
+  x <- as.character(x)
+  replacements <- c(english_columns, english_model_names, english_coefficients)
+  indices <- match(x, names(replacements))
+  replace <- !is.na(indices)
+  x[replace] <- unname(replacements[indices[replace]])
+  x
+}
+
+kable_english <- function(x, ..., col.names = NULL) {
+  # Translate presentation labels on a local copy, not the analysis objects.
+  if (is.data.frame(x)) {
+    if (identical(names(x), c("df", "BIC"))) {
+      x <- data.frame(Model = english_label(rownames(x)),
+                      `Parameters (df)` = x$df, BIC = x$BIC,
+                      check.names = FALSE, row.names = NULL)
+    } else {
+      names(x) <- english_label(names(x))
+      if ("Variable" %in% names(x)) x[["Variable"]] <- english_label(x[["Variable"]])
+      if ("Predictor" %in% names(x)) x[["Predictor"]] <- english_label(x[["Predictor"]])
+      rn <- rownames(x)
+      new_rn <- english_label(rn)
+      if (any(rn != new_rn)) rownames(x) <- new_rn
+    }
+  } else if (is.matrix(x)) {
+    if (!is.null(colnames(x))) colnames(x) <- english_label(colnames(x))
+    if (!is.null(rownames(x))) rownames(x) <- english_label(rownames(x))
+  }
+  if (is.null(col.names)) {
+    knitr::kable(x, ...)
+  } else {
+    knitr::kable(x, ..., col.names = col.names)
+  }
+}
+
+```
+
+### 2.2 Dataset import and initial inspection
+
+```{r dataset-import}
+dati <- read.csv("neonati.csv")
+kable_english(head(dati), caption = "First six rows of the dataset")
+kable_english(data.frame(Osservazioni = nrow(dati), Variabili = ncol(dati)),
+             caption = "Dataset dimensions")
+kable_english(tabella_variabili(dati), col.names = c("Variable", "Data type", "Missing values"), caption = "Variables and data types")
+```
+
+### 2.3 Variable preparation
+
+```{r variable-preparation}
+# Convert categorical variables to factors
+dati$Tipo.parto <- factor(dati$Tipo.parto)
+dati$Ospedale <- factor(dati$Ospedale)
+dati$Sesso <- factor(dati$Sesso)
+kable_english(tabella_variabili(dati), col.names = c("Variable", "Data type", "Missing values"), caption = "Data types after conversion")
+```
+
+### 2.4 Data quality checks {#controllo-qualita-dati}
+
+```{r data-quality-checks}
+# Check for missing values
+kable_english(data.frame(Variabile = names(dati),
+                          Valori_mancanti = unname(colSums(is.na(dati))),
+                          row.names = NULL),
+             caption = "Missing-value check")
+
+# Descriptive statistics and identification of suspicious values
+# Compact table for quantitative variables; categorical variables are
+# summarised in dedicated frequency tables later in this section.
+variabili_quantitative <- c(
+  "Anni.madre", "N.gravidanze", "Gestazione",
+  "Peso", "Lunghezza", "Cranio"
+)
+riepilogo_quantitativo <- t(vapply(
+  dati[variabili_quantitative],
+  function(x) c(
+    Minimo = min(x),
+    Q1 = unname(quantile(x, 0.25)),
+    Mediana = median(x),
+    Media = mean(x),
+    Q3 = unname(quantile(x, 0.75)),
+    Massimo = max(x)
+  ),
+  numeric(6)
+))
+kable_english(
+  data.frame(
+    Variabile = rownames(riepilogo_quantitativo),
+    round(riepilogo_quantitativo, 2),
+    row.names = NULL,
+    check.names = FALSE
+  ),
+  caption = "Initial descriptive summary of quantitative variables"
+)
+```
+
+```{r outlier-inspection}
+# Inspect potentially unusual observations
+
+# Identify observations with maternal age of 0 years
+dati %>%
+  filter(Anni.madre == 0) %>%
+  kable_english(caption = "Records with maternal age equal to 0")
+
+# Examine maternal ages below 15 years,
+# which may be unusual but are not necessarily erroneous
+dati %>%
+  filter(Anni.madre < 15) %>%
+  arrange(Anni.madre) %>%
+  kable_english(caption = "Maternal ages below 15 years")
+
+# Examine the distribution of previous pregnancies
+dati %>%
+  count(N.gravidanze) %>%
+  arrange(desc(N.gravidanze)) %>%
+  kable_english(caption = "Frequency of previous pregnancies")
+
+# Check records with at least nine previous pregnancies
+dati %>%
+  filter(N.gravidanze >= 9) %>%
+  arrange(desc(N.gravidanze)) %>%
+  kable_english(caption = "Records with at least nine previous pregnancies")
+
+# Examine the distribution of gestational age
+dati %>%
+  count(Gestazione) %>%
+  arrange(desc(Gestazione)) %>%
+  kable_english(caption = "Gestational-age frequencies")
+
+# Birth weight statistics by gestational week
+dati %>%
+  group_by(Gestazione) %>%
+  summarise(
+    n = n(),
+    peso_min = min(Peso),
+    peso_mediano = median(Peso),
+    peso_max = max(Peso)
+  ) %>%
+  arrange(Gestazione) %>%
+  kable_english(caption = "Birth weight by gestational week")
+
+# Check consistency between birth weight and gestational age
+ggplot(dati, aes(x = Gestazione, y = Peso)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    title = "Birth weight by gestational week",
+    x = "Gestational age (weeks)",
+    y = "Birth weight (g)"
+  ) +
+  theme_minimal()
+
+# Check unusually high or low birth weights
+# relative to gestational age,
+# following inspection of the scatterplot
+dati %>%
+  filter(
+    (Gestazione == 35 & Peso > 4000) |
+    (Gestazione == 40 & Peso < 2000)
+  ) %>%
+  kable_english(caption = "Unusual birth weights relative to gestational age")
+
+# Examine newborn length distribution
+ggplot(dati, aes(x = Lunghezza / 10)) +
+  geom_histogram(binwidth = 1, color = "white") +
+  labs(
+    title = "Distribution of newborn length",
+    x = "Length (cm)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Check consistency between length and gestational age
+ggplot(dati, aes(x = Gestazione, y = Lunghezza)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    title = "Newborn length by gestational week",
+    x = "Gestational age (weeks)",
+    y = "Length (mm)"
+  ) +
+  theme_minimal()
+
+
+# Examine head-measurement distribution
+ggplot(dati, aes(x = Cranio / 10)) +
+  geom_histogram(binwidth = 0.5, color = "white") +
+  labs(
+    title = "Distribution of head measurements",
+    x = "Head measurement (cm)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Check consistency between head measurement and gestational age
+ggplot(dati, aes(x = Gestazione, y = Cranio)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    title = "Head measurement by gestational week",
+    x = "Gestational age (weeks)",
+    y = "Head measurement (mm)"
+  ) +
+  theme_minimal()
+
+# Identify records with suspicious anthropometric measurements
+# relative to gestational age
+dati %>%
+  filter(
+    (Gestazione == 28 & Cranio > 370) |
+    (Gestazione == 38 & Lunghezza < 350) |
+    (Gestazione == 32 & Lunghezza >= 490)
+  ) %>%
+  select(Gestazione, Peso, Lunghezza, Cranio) %>%
+  kable_english(caption = "Unusual anthropometric measurements")
+
+# Check categorical levels and their frequencies
+kable_english(as.data.frame(table(dati$Sesso)), col.names = c("Sex", "Frequency"), caption = "Frequencies by sex")
+kable_english(as.data.frame(table(dati$Ospedale)), col.names = c("Hospital", "Frequency"), caption = "Frequencies by hospital")
+kable_english(as.data.frame(table(dati$Tipo.parto)), col.names = c("Delivery type", "Frequency"), caption = "Frequencies by delivery type")
+kable_english(as.data.frame(table(dati$Fumatrici)), col.names = c("Smoking status", "Frequency"), caption = "Frequencies by maternal smoking")
+
+```
+
+**DATASET COMPLETENESS**
+The initial inspection found no missing values in the dataset: all 2,500 records were complete for the variables considered.
+
+The descriptive statistics nevertheless revealed potentially unusual values. In particular, a minimum maternal age of zero years is biologically impossible and suggests a recording error. Other extreme values, including 12 previous pregnancies, a gestation of 43 weeks, and a minimum and maximum birth weight of 830 g and 4,930 g, are unusual but clinically possible.
+
+These findings prompted additional checks of the distributions and the consistency of measurements across variables.
+
+**QUANTITATIVE VARIABLES**
+
+**Maternal age and previous pregnancies:** Two records had impossible maternal ages (0 and 1 year), whereas ages 13 and 14, although rare, are biologically possible. Records with very high numbers of previous pregnancies (9–12) concern mothers aged 33–38 years and show no obvious inconsistencies.
+
+**Gestational age and birth weight:** Most births occurred between 38 and 41 weeks. The scatterplot shows a positive relationship between gestational age and birth weight, consistent with fetal growth. Some unusual combinations were nevertheless found, including a newborn weighing 1,850 g at 40 weeks and another weighing 4,520 g at 35 weeks.
+
+**Length and head measurements:** The histograms show unimodal distributions with somewhat longer lower tails. Scatterplots against gestational age generally indicate increasing trends, but they also reveal suspicious measurements: a head measurement of 37.9 cm at 28 weeks, a length of 31.5 cm at 38 weeks, and a length of 50 cm at 32 weeks. These are particularly unusual when the other anthropometric measurements are considered.
+
+**CATEGORICAL VARIABLES**
+Frequency checks revealed no obvious coding anomalies in the categorical variables. Births are distributed approximately evenly between sexes and across the three hospitals. Caesarean deliveries account for 29.1% of the sample, while mothers classified as smokers account for only 4.2%. The small number of smokers warrants caution in subsequent analyses.
+
+**CONCLUSIONS AND METHODOLOGICAL DECISIONS**
+
+The quality checks identified two definite errors in maternal age and five potentially unusual records involving weight or anthropometric measurements.
+
+Because the available information does not establish whether these five records are erroneous, they were retained in the main dataset and recorded separately in [Section 2.5](#casi-sospetti), so their effect could be examined in a later sensitivity analysis. These records were selected exploratorily rather than through an exhaustive outlier-detection procedure.
+
+The two biologically impossible maternal ages are instead treated as missing values, without discarding the corresponding records ([Section 2.6](#pulizia-dati)).
+
+
+
+### 2.5 Recording suspicious observations {#casi-sospetti}
+
+```{r suspicious-observations}
+# Record suspicious observations for sensitivity analysis
+# and retain their original row identifiers
+casi_sospetti <- dati %>%
+  mutate(id_riga = row_number()) %>%
+  filter(
+    (Gestazione == 28 & Cranio == 379) |
+    (Gestazione == 38 & Lunghezza == 315) |
+    (Gestazione == 32 & Lunghezza == 500) |
+    (Gestazione == 40 & Peso == 1850) |
+    (Gestazione == 35 & Peso == 4520)
+  )
+
+# Display the identified records
+kable_english(casi_sospetti, caption = "Five suspicious observations")
+```
+
+The five records identified during data quality checks were saved in `casi_sospetti`, together with identifiers that link them to their original dataset rows.
+
+They contain unusual combinations of birth weight, length, head measurement and gestational age, but there is insufficient information to determine whether they are recording errors or rare clinical cases.
+
+They were therefore **retained in the main dataset** without changing their values.
+
+A subsequent sensitivity analysis will compare regression estimates with and without these records to assess their influence on the estimates and on the robustness of the conclusions.
+
+
+### 2.6 Data cleaning {#pulizia-dati}
+
+```{r data-cleaning}
+# Replace impossible maternal ages with NA
+dati$Anni.madre[dati$Anni.madre < 2] <- NA
+
+# Check the correction
+kable_english(data.frame(Variabile = "Maternal age",
+                          Valori_mancanti = sum(is.na(dati$Anni.madre))),
+             caption = "Missing values after cleaning")
+```
+
+The maternal ages of 0 and 1 year, identified as biologically impossible recording errors, were replaced with `NA`.
+
+We chose **not to remove the entire records**, because the other recorded information is plausible and may be useful in subsequent analyses.
+
+After cleaning, all 2,500 records remain in the dataset, with two missing values in `Anni.madre`. Subsequent analyses handle these missing values according to the variables involved.
+
+
+## 3. Descriptive analysis
+
+### 3.1 Quantitative variables
+
+
+
+#### Distribution of previous pregnancies
+
+```{r gravidanze-summary}
+g <- dati$N.gravidanze
+
+statistiche_gravidanze <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean",
+    "Standard deviation",
+    "Median",
+    "First quartile (Q1)",
+    "Third quartile (Q3)",
+    "Minimum",
+    "Maximum"
+  ),
+  Valore = c(
+    sum(!is.na(g)),
+    mean(g, na.rm = TRUE),
+    sd(g, na.rm = TRUE),
+    median(g, na.rm = TRUE),
+    quantile(g, 0.25, na.rm = TRUE),
+    quantile(g, 0.75, na.rm = TRUE),
+    min(g, na.rm = TRUE),
+    max(g, na.rm = TRUE)
+  )
+)
+
+
+# Format values for the report
+statistiche_gravidanze$Valore <- c(
+  format(
+    as.integer(statistiche_gravidanze$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_gravidanze$Valore[-1],
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_gravidanze,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for previous pregnancies",
+  align = c("l", "r")
+)
+```
+
+
+
+```{r}
+ggplot(dati, aes(x = factor(N.gravidanze))) +
+  geom_bar(fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribution of previous pregnancies",
+    x = "Number of previous pregnancies",
+    y = "Number of mothers"
+  ) +
+  theme_minimal()
+```
+The distribution of previous pregnancies is strongly right-skewed. Most mothers had either no previous pregnancies or only one. Frequencies decline as the number of previous pregnancies increases, with only a few particularly high values.
+
+As discussed in [Section 2.4](#controllo-qualita-dati), the extreme observations did not show inconsistencies sufficient to justify their exclusion.
+
+
+#### Gestational age (weeks)
+
+```{r}
+
+g <- dati$Gestazione
+
+statistiche_gestazione <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean (weeks)",
+    "Standard deviation (weeks)",
+    "Median (weeks)",
+    "First quartile (Q1, weeks)",
+    "Third quartile (Q3, weeks)",
+    "Minimum (weeks)",
+    "Maximum (weeks)"
+  ),
+  Valore = c(
+    sum(!is.na(g)),
+    mean(g, na.rm = TRUE),
+    sd(g, na.rm = TRUE),
+    median(g, na.rm = TRUE),
+    quantile(g, 0.25, na.rm = TRUE),
+    quantile(g, 0.75, na.rm = TRUE),
+    min(g, na.rm = TRUE),
+    max(g, na.rm = TRUE)
+  )
+)
+
+# Format values for the report
+statistiche_gestazione$Valore <- c(
+  format(
+    as.integer(statistiche_gestazione$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_gestazione$Valore[-1],
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_gestazione,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for gestational age",
+  align = c("l", "r")
+)
+
+```
+
+
+
+```{r gestation-distribution}
+# Gestational-age distribution
+ggplot(dati, aes(x = factor(Gestazione))) +
+  geom_bar(fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribution of gestational age",
+    x = "Gestational age (weeks)",
+    y = "Number of births"
+  ) +
+  theme_minimal()
+```
+
+
+**Percentage of births between 38 and 41 weeks:** `r format(round(mean(dati$Gestazione %in% 38:41) * 100, 1), decimal.mark = ".", nsmall = 1)`% of the total.
+
+
+
+The gestational-age distribution is unimodal and left-skewed.
+Most births occur between 38 and 41 weeks, with a peak at week 40.
+Very preterm and post-term births are uncommon and lie at the extremes of the distribution. As discussed in [Section 2.4](#controllo-qualita-dati), the observed extreme values are clinically possible and were not treated as data-entry errors.
+
+
+
+#### Maternal age
+
+
+```{r maternal-age-summary}
+# Maternal age descriptive statistics
+eta <- dati$Anni.madre
+
+statistiche_eta <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean (years)",
+    "Standard deviation (years)",
+    "Median (years)",
+    "First quartile (Q1, years)",
+    "Third quartile (Q3, years)",
+    "Interquartile range (years)",
+    "Minimum (years)",
+    "Maximum (years)"
+  ),
+  Valore = c(
+    sum(!is.na(eta)),
+    mean(eta, na.rm = TRUE),
+    sd(eta, na.rm = TRUE),
+    median(eta, na.rm = TRUE),
+    quantile(eta, 0.25, na.rm = TRUE),
+    quantile(eta, 0.75, na.rm = TRUE),
+    IQR(eta, na.rm = TRUE),
+    min(eta, na.rm = TRUE),
+    max(eta, na.rm = TRUE)
+  )
+)
+
+
+# Format values for the report
+statistiche_eta$Valore <- c(
+  format(
+    as.integer(statistiche_eta$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_eta$Valore[-1],
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_eta,
+  digits = 1,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for maternal age"
+)
+```
+
+```{r maternal-age-distribution}
+# Maternal age distribution
+ggplot(dati, aes(x = Anni.madre)) +
+  geom_histogram(
+  binwidth = 2,
+  fill = "steelblue",
+  color = "white",
+  na.rm = TRUE
+) +
+  labs(
+    title = "Distribution of maternal age",
+    x = "Maternal age (years)",
+    y = "Number of mothers"
+  ) +
+  theme_minimal()
+```
+
+```{r maternal-age-boxplot}
+# Maternal age boxplot
+ggplot(dati, aes(y = Anni.madre)) +
+  geom_boxplot(
+  fill = "steelblue",
+  alpha = 0.7,
+  na.rm = TRUE
+) +
+  labs(
+    title = "Maternal age distribution — boxplot",
+    y = "Maternal age (years)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+
+
+
+**Interpretation of results**
+
+The analysis included 2,498 valid observations. Mean maternal age was 28.2 years (SD = 5.2), with a median of 28 years. The similarity of the mean and median, together with the histogram, suggests a unimodal and approximately symmetric distribution, with most observations between ages 20 and 35.
+
+The boxplot shows that the central 50% of mothers were aged between 25 years (Q1) and 32 years (Q3), an interquartile range of seven years. Ages range from 13 to 46 years; observations at the tails are flagged as potential outliers.
+
+As discussed in [Section 2.4](#controllo-qualita-dati), these extreme values are not necessarily recording errors and were retained. The two biologically impossible ages (0 and 1) were instead treated as missing during [data cleaning](#pulizia-dati).
+
+
+#### Birth weight
+
+```{r peso-summary}
+
+# Birth weight descriptive statistics
+p <- dati$Peso
+
+statistiche_peso <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean (g)",
+    "Standard deviation (g)",
+    "Median (g)",
+    "First quartile (Q1, g)",
+    "Third quartile (Q3, g)",
+    "Minimum (g)",
+    "Maximum (g)"
+  ),
+  Valore = c(
+    sum(!is.na(p)),
+    mean(p, na.rm = TRUE),
+    sd(p, na.rm = TRUE),
+    median(p, na.rm = TRUE),
+    quantile(p, 0.25, na.rm = TRUE),
+    quantile(p, 0.75, na.rm = TRUE),
+    min(p, na.rm = TRUE),
+    max(p, na.rm = TRUE)
+  )
+)
+
+# Format values for the report
+statistiche_peso$Valore <- c(
+  format(
+    as.integer(statistiche_peso$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_peso$Valore[-1],
+    format = "f",
+    digits = 1,
+    big.mark = ",",
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_peso,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for birth weight",
+  align = c("l", "r")
+)
+
+```
+```{r}
+
+ggplot(dati, aes(x = Peso)) +
+  geom_histogram(
+    binwidth = 100,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribution of birth weight",
+    x = "Birth weight (g)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+```{r peso-boxplot}
+ggplot(dati, aes(x = "", y = Peso)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Birth weight — boxplot",
+    y = "Birth weight (g)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+
+
+##### Interpretation of results
+
+The birth-weight distribution is approximately bell-shaped, with slight left skew. The mean is **3,284.1 g**, close to the median (**3,300 g**); the standard deviation of **525 g** indicates substantial variability across observations.
+
+The boxplot highlights **extreme values**, especially in the lower tail. These are not necessarily errors, as they may reflect particular clinical circumstances, such as prematurity.
+
+Consistent with the data-cleaning decisions, these records are **retained in the analyses**. Their potential influence on the estimates is assessed during model development.
+
+
+
+#### Newborn length
+
+```{r lunghezza-summary}
+l <- dati$Lunghezza
+
+statistiche_lunghezza <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean (mm)",
+    "Standard deviation (mm)",
+    "Median (mm)",
+    "First quartile (Q1, mm)",
+    "Third quartile (Q3, mm)",
+    "Minimum (mm)",
+    "Maximum (mm)"
+  ),
+  Valore = c(
+    sum(!is.na(l)),
+    mean(l, na.rm = TRUE),
+    sd(l, na.rm = TRUE),
+    median(l, na.rm = TRUE),
+    quantile(l, 0.25, na.rm = TRUE),
+    quantile(l, 0.75, na.rm = TRUE),
+    min(l, na.rm = TRUE),
+    max(l, na.rm = TRUE)
+  )
+)
+
+# Format values for the report
+statistiche_lunghezza$Valore <- c(
+  format(
+    as.integer(statistiche_lunghezza$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_lunghezza$Valore[-1],
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_lunghezza,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for newborn length",
+  align = c("l", "r")
+)
+```
+
+```{r lunghezza-istogramma}
+ggplot(dati, aes(x = Lunghezza)) +
+  geom_histogram(
+  binwidth = 10,
+  center = 500,
+  fill = "steelblue",
+  color = "white"
+) +
+  labs(
+    title = "Distribution of newborn length",
+    x = "Length at birth (mm)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+```{r lunghezza-boxplot}
+ggplot(dati, aes(x = "", y = Lunghezza)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Newborn length — boxplot",
+    y = "Length at birth (mm)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+
+
+##### Interpretation of results
+
+The newborn-length distribution is approximately bell-shaped, with **left skew**. Mean length is **494.7 mm**, slightly below the median (**500 mm**), and the standard deviation is **26.3 mm**.
+
+The central 50% of observations fall between **480 and 510 mm**. The boxplot shows several **extreme values**, mostly in the lower tail, with a minimum of 310 mm.
+
+As with birth weight, such measurements may be associated with particular clinical conditions, including prematurity. They are retained in line with the data-cleaning decisions, and their influence is considered in subsequent analyses.
+
+
+
+#### Head circumference
+
+```{r cranio-summary}
+c <- dati$Cranio
+
+statistiche_cranio <- data.frame(
+  Statistica = c(
+    "Valid observations",
+    "Mean (mm)",
+    "Standard deviation (mm)",
+    "Median (mm)",
+    "First quartile (Q1, mm)",
+    "Third quartile (Q3, mm)",
+    "Minimum (mm)",
+    "Maximum (mm)"
+  ),
+  Valore = c(
+    sum(!is.na(c)),
+    mean(c, na.rm = TRUE),
+    sd(c, na.rm = TRUE),
+    median(c, na.rm = TRUE),
+    quantile(c, 0.25, na.rm = TRUE),
+    quantile(c, 0.75, na.rm = TRUE),
+    min(c, na.rm = TRUE),
+    max(c, na.rm = TRUE)
+  )
+)
+
+# Format values for the report
+statistiche_cranio$Valore <- c(
+  format(
+    as.integer(statistiche_cranio$Valore[1]),
+    big.mark = ",",
+    decimal.mark = ".",
+    trim = TRUE
+  ),
+  formatC(
+    statistiche_cranio$Valore[-1],
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  )
+)
+
+kable_english(
+  statistiche_cranio,
+  col.names = c("Statistic", "Value"),
+  caption = "Descriptive statistics for head circumference",
+  align = c("l", "r")
+)
+```
+
+
+```{r cranio-istogramma}
+ggplot(dati, aes(x = Cranio)) +
+  geom_histogram(
+    binwidth = 10,
+    center = 340,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribution of head circumference",
+    x = "Head circumference (mm)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+
+```{r cranio-boxplot}
+ggplot(dati, aes(x = "", y = Cranio)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Head circumference — boxplot",
+    y = "Head circumference (mm)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+
+
+##### Interpretation of results
+
+The head-circumference distribution is approximately bell-shaped, with **slight left skew**. The mean and median coincide (**340 mm**), and the standard deviation is **16.4 mm**.
+
+The central 50% of observations fall between **330 and 350 mm**. The boxplot shows some **extreme values**, particularly in the lower tail, with a minimum of **235 mm**.
+
+As with the other neonatal measurements, extreme values need not be recording errors and may reflect clinical conditions such as prematurity. They are therefore retained, with their influence assessed in later analyses.
+
+
+
+### 3.2 Categorical variables
+
+#### Newborn sex
+
+```{r sesso-summary}
+# Absolute frequencies
+tabella_sesso <- as.data.frame(table(dati$Sesso))
+
+colnames(tabella_sesso) <- c("Sesso", "Frequenza")
+
+# Percentages
+tabella_sesso$Percentuale <- 100 * 
+  tabella_sesso$Frequenza / sum(tabella_sesso$Frequenza)
+
+# Format percentages
+tabella_sesso$Percentuale <- paste0(
+  formatC(
+    tabella_sesso$Percentuale,
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  ),
+  "%"
+)
+
+kable_english(
+  tabella_sesso,
+  col.names = c("Sex", "Frequency", "Percentage"),
+  caption = "Distribution of newborn sex",
+  align = c("l", "r", "r")
+)
+```
+
+##### Interpretation of results
+
+The sex distribution is **approximately balanced**, with **50.2% female** and **49.8% male** newborns. There is therefore no substantial imbalance in sample composition for this variable.
+
+
+
+#### Delivery type
+
+```{r parto-summary}
+# Absolute frequencies
+tabella_parto <- as.data.frame(table(dati$Tipo.parto))
+
+colnames(tabella_parto) <- c("Tipo di parto", "Frequenza")
+
+# Percentages
+tabella_parto$Percentuale <- 100 *
+  tabella_parto$Frequenza / sum(tabella_parto$Frequenza)
+
+# Format percentages
+tabella_parto$Percentuale <- paste0(
+  formatC(
+    tabella_parto$Percentuale,
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  ),
+  "%"
+)
+
+kable_english(
+  tabella_parto,
+  col.names = c("Delivery type", "Frequency", "Percentage"),
+  caption = "Distribution of delivery type",
+  align = c("l", "r", "r")
+)
+```
+
+##### Interpretation of results
+
+Of the newborns in the sample, **70.9%** were delivered vaginally and **29.1%** by caesarean section. Vaginal delivery is therefore more common.
+
+Subsequent analyses examine whether birth weight differs by delivery type.
+
+
+#### Hospital
+
+```{r ospedale-summary}
+# Absolute frequencies
+tabella_ospedale <- as.data.frame(table(dati$Ospedale))
+
+colnames(tabella_ospedale) <- c("Ospedale", "Frequenza")
+
+# Percentages
+tabella_ospedale$Percentuale <- 100 *
+  tabella_ospedale$Frequenza / sum(tabella_ospedale$Frequenza)
+
+# Format percentages
+tabella_ospedale$Percentuale <- paste0(
+  formatC(
+    tabella_ospedale$Percentuale,
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  ),
+  "%"
+)
+
+kable_english(
+  tabella_ospedale,
+  col.names = c("Hospital", "Frequency", "Percentage"),
+  caption = "Birth distribution across hospitals",
+  align = c("l", "r", "r")
+)
+```
+
+##### Interpretation of results
+
+Births are **distributed approximately evenly across the three hospitals**, each contributing around one-third of the sample. Hospital 2 has the largest share (**34.0%**), followed by Hospital 3 (**33.4%**) and Hospital 1 (**32.6%**).
+
+Subsequent analyses assess potential differences in birth weight between hospitals.
+
+
+
+#### Maternal smoking status
+
+```{r fumo-summary}
+# Absolute frequencies
+tabella_fumo <- as.data.frame(table(dati$Fumatrici))
+
+colnames(tabella_fumo) <- c("Fumo materno (codice)", "Frequenza")
+
+# Percentages
+tabella_fumo$Percentuale <- 100 *
+  tabella_fumo$Frequenza / sum(tabella_fumo$Frequenza)
+
+# Format percentages
+tabella_fumo$Percentuale <- paste0(
+  formatC(
+    tabella_fumo$Percentuale,
+    format = "f",
+    digits = 1,
+    decimal.mark = "."
+  ),
+  "%"
+)
+
+kable_english(
+  tabella_fumo,
+  col.names = c("Smoking status", "Frequency", "Percentage"),
+  caption = "Distribution of maternal smoking status",
+  align = c("l", "r", "r")
+)
+```
+
+
+##### Interpretation of results
+
+Maternal smoking status is **highly imbalanced**: **95.8% of mothers** are classified as non-smokers and **4.2%** as smokers.
+
+The relatively small smoker group (**104 observations**) must be considered in subsequent analyses, as it may affect the precision of estimates of the relationship between maternal smoking and birth weight.
+
+
+
+## 4. Analysis of relationships between variables
+
+### 4.1 Birth weight and gestational age
+
+```{r correlazione-peso-gestazione}
+kable_english(data.frame(
+  Coppia = "Birth weight – gestational age",
+  Correlazione_r = round(cor(
+    dati$Peso, dati$Gestazione,
+    method = "pearson", use = "complete.obs"
+  ), 3)
+), caption = "Pearson correlation between birth weight and gestational age")
+```
+
+
+A **moderately strong positive correlation** was observed between gestational age and birth weight (**r = 0.592**). Newborns with longer gestation therefore tend to have higher birth weights.
+
+The approximately linear relationship suggests that gestational age may be an important predictor in the statistical model.
+
+
+
+### 4.2 Correlations with other quantitative variables
+
+```{r correlazioni-quantitative}
+variabili <- c(
+  "Gestazione",
+  "Lunghezza",
+  "Cranio",
+  "Anni.madre",
+  "N.gravidanze"
+)
+
+correlazioni <- sapply(
+  dati[variabili],
+  function(x) cor(dati$Peso, x, use = "complete.obs")
+)
+
+kable_english(data.frame(Variabile = names(correlazioni),
+                         Correlazione_r = round(as.numeric(correlazioni), 3)),
+             caption = "Pearson correlations with birth weight")
+```
+
+
+Pearson correlations show positive associations between **birth weight** and several neonatal characteristics. The strongest correlations are with **length (r = 0.796)** and **head circumference (r = 0.705)**, followed by **gestational age (r = 0.592)**.
+
+**Maternal age (r = −0.024)** and **number of previous pregnancies (r = 0.002)** have correlations with birth weight that are close to zero.
+
+These results provide an initial picture of associations, but they do not establish causal relationships or identify the independent contribution of each predictor. The latter is investigated through multiple regression.
+
+
+
+### 4.3 Birth weight and categorical variables
+
+#### Maternal smoking
+
+```{r peso-fumo}
+dati %>%
+  group_by(Fumatrici) %>%
+  summarise(
+    N = n(),
+    Peso_medio = round(mean(Peso, na.rm = TRUE), 1),
+    Deviazione_standard = round(sd(Peso, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) %>%
+  kable_english(
+    caption = "Birth weight by maternal smoking status"
+  )
+```
+
+```{r grafico-peso-fumo, fig.width=7, fig.height=4.5}
+ggplot(dati, aes(
+  x = factor(Fumatrici, levels = c(0, 1),
+             labels = c("Non-smoker", "Smoker")),
+  y = Peso
+)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7, width = 0.55) +
+  labs(
+    title = "Birth weight and maternal smoking",
+    x = "Maternal smoking status",
+    y = "Birth weight (g)"
+  ) +
+  theme_minimal()
+```
+
+##### Interpretation of results
+
+Mean birth weight is **3,286.2 g** among babies of mothers classified as non-smokers, compared with **3,236.3 g** among babies of mothers classified as smokers, a difference of approximately **50 g**.
+
+This difference is relatively small compared with the variation within the groups: the boxplot shows considerable overlap. The group sizes are also highly imbalanced (**2,396 vs 104 observations**).
+
+This descriptive comparison cannot determine whether the difference is statistically significant or whether it is directly attributable to maternal smoking. The association requires further statistical analysis.
+
+
+#### Newborn sex
+
+```{r peso-sesso}
+dati %>%
+  group_by(Sesso) %>%
+  summarise(
+    N = n(),
+    Peso_medio = round(mean(Peso, na.rm = TRUE), 1),
+    Deviazione_standard = round(sd(Peso, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) %>%
+  kable_english(
+    caption = "Birth weight by newborn sex"
+  )
+```
+
+##### Interpretation of results
+
+Male newborns have a higher mean birth weight (**3,408.2 g**) than females (**3,161.1 g**), a difference of approximately **247 g**.
+
+The two groups are similar in size and have relatively comparable standard deviations. The observed difference suggests a potential association between **newborn sex** and **birth weight**, which is investigated further while accounting for other possible predictors.
+
+
+
+#### Delivery type
+
+```{r peso-parto}
+dati %>%
+  group_by(Tipo.parto) %>%
+  summarise(
+    N = n(),
+    Peso_medio = round(mean(Peso, na.rm = TRUE), 1),
+    Deviazione_standard = round(sd(Peso, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) %>%
+  kable_english(
+    caption = "Birth weight by delivery type"
+  )
+```
+
+##### Interpretation of results
+
+Mean birth weight is almost identical among babies born by **vaginal delivery (3,284.9 g)** and **caesarean section (3,282.0 g)**, a difference of only **2.9 g**.
+
+There is therefore no notable descriptive difference in mean birth weight by delivery type. Any association after adjustment for the other available variables is examined in the multivariable analysis.
+
+
+#### Hospital
+
+```{r peso-ospedale}
+dati %>%
+  group_by(Ospedale) %>%
+  summarise(
+    N = n(),
+    Peso_medio = round(mean(Peso, na.rm = TRUE), 1),
+    Deviazione_standard = round(sd(Peso, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) %>%
+  kable_english(
+    caption = "Birth weight by hospital"
+  )
+```
+
+##### Interpretation of results
+
+Mean birth weight is **broadly similar across the three hospitals**. Hospitals 1 and 2 have nearly identical means (**3,270.3 g** and **3,270.5 g**, respectively), while Hospital 3 has a slightly higher mean (**3,311.4 g**).
+
+These differences are small relative to within-hospital variation. No particularly pronounced descriptive differences are apparent, but hospital is examined as a predictor in the multivariable model.
+
+
+## 5. Testing the clinical research questions
+
+### 5.1 Caesarean delivery rates across the three hospitals
+
+**Null hypothesis (H0):** the proportion of caesarean deliveries is the same across the three hospitals.
+
+**Alternative hypothesis (H1):** at least one hospital has a different proportion of caesarean deliveries.
+
+```{r cesarei-ospedali-tabella}
+# Contingency table
+tabella_cesarei <- table(dati$Ospedale, dati$Tipo.parto)
+
+kable_english(
+  tabella_cesarei,
+  caption = "Distribution of delivery types across the three hospitals"
+)
+
+# Within-hospital percentages
+percentuali_cesarei <- prop.table(tabella_cesarei, margin = 1) * 100
+
+kable_english(
+  round(percentuali_cesarei, 1),
+  caption = "Percentages of delivery types by hospital"
+)
+```
+
+##### Chi-square test of independence
+
+A chi-square test of independence is used to assess the association between hospital and delivery type, at a significance level of α = 0.05.
+
+```{r cesarei-ospedali-test}
+# Chi-square test of independence
+test_cesarei <- chisq.test(tabella_cesarei)
+
+# Test results
+kable_english(tabella_test(test_cesarei), caption = "Chi-square test results")
+
+# Expected counts
+kable_english(round(test_cesarei$expected, 2),
+             caption = "Expected frequencies for the chi-square test")
+```
+
+```{r dimensione-effetto}
+# Effect size: Cramér's V
+v_cramer <- sqrt(
+  as.numeric(test_cesarei$statistic) / sum(tabella_cesarei)
+)
+
+kable_english(data.frame(Indicatore = "Cramér's V", Valore = round(v_cramer, 3)),
+             caption = "Association strength")
+```
+
+
+##### Interpretation of results
+
+The chi-square test finds no statistically significant association between **hospital** and **delivery type** (χ²(2) = 1.097; p = 0.578).
+
+The null hypothesis of equal caesarean proportions across hospitals is therefore not rejected.
+
+All expected cell frequencies exceed 5, meeting the relevant assumption of the test. **Cramér's V (0.021)** also indicates a negligible association.
+
+Overall, the data do not provide evidence of meaningful differences in caesarean delivery rates among the hospitals.
+
+
+
+### 5.2 Comparing sample means with reference values
+
+#### Birth weight
+
+**Null hypothesis (H0):** the population mean birth weight is 3,300 g.
+
+**Alternative hypothesis (H1):** the population mean birth weight differs from 3,300 g.
+
+A two-sided one-sample Student's t-test is used at a significance level of α = 0.05.
+
+```{r test-peso-medio}
+test_peso <- t.test(
+  dati$Peso,
+  mu = 3300,
+  alternative = "two.sided"
+)
+
+kable_english(tabella_test(test_peso), caption = "One-sample t-test for mean birth weight")
+```
+
+##### Interpretation of results
+
+The observed sample mean birth weight is **3,284.1 g**, slightly below the **3,300 g** reference value, a difference of approximately **15.9 g**.
+
+The one-sample t-test does not show a statistically significant difference (**t(2499) = −1.516; p = 0.130**), so the null hypothesis is not rejected.
+
+The **95% confidence interval [3,263.5, 3,304.7 g]** contains 3,300 g, consistent with the test result.
+
+Overall, there is insufficient evidence to conclude that the population mean birth weight differs from 3,300 g.
+
+
+
+
+#### Newborn length
+
+**Null hypothesis (H0):** the population mean newborn length is 500 mm (50 cm).
+
+**Alternative hypothesis (H1):** the population mean newborn length differs from 500 mm.
+
+A **two-sided one-sample Student's t-test** is used at a significance level of α = 0.05.
+
+
+```{r test-lunghezza-media}
+test_lunghezza <- t.test(
+  dati$Lunghezza,
+  mu = 500,
+  alternative = "two.sided"
+)
+
+kable_english(tabella_test(test_lunghezza), caption = "One-sample t-test for mean newborn length")
+```
+
+##### Interpretation of results
+
+The observed sample mean length is **494.7 mm**, below the **500 mm** reference value, a difference of approximately **5.3 mm**.
+
+The one-sample t-test finds a **statistically significant difference** (**t(2499) = −10.084; p < 0.001**). The null hypothesis of a population mean length of 500 mm is therefore rejected.
+
+The **95% confidence interval [493.66, 495.72 mm]** does not include the reference value, confirming the test result.
+
+However, the difference is small in absolute terms (**approximately 0.5 cm**). Statistical significance should therefore be distinguished from practical importance.
+
+
+### 5.3 Anthropometric differences between male and female newborns
+
+#### Birth weight
+
+**Null hypothesis (H0):** male and female newborns have the same mean birth weight.
+
+**Alternative hypothesis (H1):** male and female newborns have different mean birth weights.
+
+A two-sided Welch's t-test for independent samples is used to compare the group means, with α = 0.05.
+
+```{r test-peso-sesso}
+test_peso_sesso <- t.test(
+  Peso ~ Sesso,
+  data = dati,
+  alternative = "two.sided"
+)
+
+kable_english(tabella_test(test_peso_sesso), caption = "Female vs male birth weight (Welch's t-test)")
+```
+
+##### Interpretation of results
+
+Male newborns have higher mean birth weight (**3,408.2 g**) than females (**3,161.1 g**), an average difference of approximately **247.1 g**.
+
+Welch's t-test finds a **statistically significant difference** (**t(2490.7) = −12.106; p < 0.001**), so the null hypothesis of equal means is rejected.
+
+The **95% confidence interval for the female-minus-male difference [−287.1, −207.1 g]** excludes zero, consistent with the test result.
+
+The observed difference suggests an association between newborn sex and birth weight, which is further examined in multiple regression.
+
+
+
+#### Newborn length
+
+**Null hypothesis (H0):** male and female newborns have the same mean length.
+
+**Alternative hypothesis (H1):** male and female newborns have different mean lengths.
+
+A two-sided Welch's t-test for independent samples is used to compare the group means, with α = 0.05.
+
+```{r test-lunghezza-sesso}
+test_lunghezza_sesso <- t.test(
+  Lunghezza ~ Sesso,
+  data = dati,
+  alternative = "two.sided"
+)
+
+kable_english(tabella_test(test_lunghezza_sesso), caption = "Female vs male newborn length (Welch's t-test)")
+```
+
+##### Interpretation of results
+
+Male newborns are longer on average (**499.7 mm**) than females (**489.8 mm**), a difference of approximately **9.9 mm**.
+
+Welch's t-test finds a **statistically significant difference** (**t(2459.3) = −9.582; p < 0.001**), so the null hypothesis of equal means is rejected.
+
+The **95% confidence interval for the female-minus-male difference [−11.93, −7.88 mm]** excludes zero, consistent with the test result.
+
+Although statistically significant, the difference is approximately **1 cm**. Clinical relevance cannot be established from statistical significance alone.
+
+
+#### Head circumference
+
+**Null hypothesis (H0):** male and female newborns have the same mean head circumference.
+
+**Alternative hypothesis (H1):** male and female newborns have different mean head circumferences.
+
+A two-sided Welch's t-test for independent samples is used to compare the group means, with α = 0.05.
+
+```{r test-cranio-sesso}
+test_cranio_sesso <- t.test(
+  Cranio ~ Sesso,
+  data = dati,
+  alternative = "two.sided"
+)
+
+kable_english(tabella_test(test_cranio_sesso), caption = "Female vs male head circumference (Welch's t-test)")
+```
+
+##### Interpretation of results
+
+Male newborns have a larger mean head circumference (**342.4 mm**) than females (**337.6 mm**), a mean difference of approximately **4.8 mm**.
+
+Welch's t-test finds a **statistically significant difference** (**t(2491.4) = −7.410; p < 0.001**), so the null hypothesis of equal means is rejected.
+
+The **95% confidence interval for the female-minus-male difference [−6.09, −3.54 mm]** excludes zero, consistent with the test result.
+
+This difference is relatively small in absolute terms (**approximately 0.5 cm**). Its clinical relevance cannot be established from statistical significance alone.
+
+
+
+## 6. Multiple linear regression model
+
+### 6.1 Full model
+
+To investigate the associations between birth weight and maternal, pregnancy-related and neonatal characteristics, a multiple linear regression model is estimated using all available predictors.
+
+```{r modello-completo}
+modello_completo <- lm(
+  Peso ~ Anni.madre + N.gravidanze + Fumatrici +
+    Gestazione + Lunghezza + Cranio +
+    Tipo.parto + Ospedale + Sesso,
+  data = dati
+)
+
+kable_english(tabella_coefficienti(modello_completo),
+             caption = "Full-model coefficients")
+kable_english(tabella_adattamento(modello_completo),
+             caption = "Full-model goodness-of-fit measures")
+
+# Number of observations used
+kable_english(data.frame(Osservazioni_utilizzate = nobs(modello_completo)),
+             caption = "Sample size for full regression")
+```
+
+
+##### Preliminary interpretation of the full model
+
+The full multiple linear regression model was fitted to **2,498 observations**, excluding two records with missing maternal age.
+
+The model has **R² = 0.729** and **adjusted R² = 0.728**, explaining approximately **72.9% of the observed variation in birth weight**. The overall F-test is statistically significant (**p < 0.001**).
+
+Associations with birth weight are particularly pronounced for **length, head circumference and gestational age**. Newborn sex also remains statistically significant after adjustment for the other predictors.
+
+**Interpretation of the β estimates:** Holding the other predictors constant, each additional millimetre of newborn length is associated with an estimated **10.29 g** increase in mean birth weight, each additional millimetre of head measurement with **10.47 g**, and each additional week of gestation with **32.58 g**. With the other characteristics held constant, male newborns have an estimated mean birth weight **77.57 g** higher than females. These are adjusted associations, not necessarily causal effects.
+
+The significance of individual coefficients is not sufficient to decide which variables to retain in the final model. Their contributions and the adequacy of the model are assessed in the analyses that follow.
+
+
+### 6.2 Correlations among predictors
+
+```{r correlazioni-predittori}
+kable_english(round(cor(
+  dati[, c("Gestazione", "Lunghezza", "Cranio")],
+  use = "complete.obs"
+), 3), caption = "Correlation matrix of predictors")
+```
+
+Correlations among gestational age, length and head measurement are positive and moderate in size (approximately 0.46–0.62). Variance inflation factors (VIFs) are examined to determine whether these associations cause problems for regression estimation.
+
+### 6.3 Assessing multicollinearity
+
+Variance inflation factors (VIFs) are calculated to assess multicollinearity among predictors in the full model.
+
+```{r verifica-vif}
+X <- model.matrix(modello_completo)[, -1, drop = FALSE]
+
+vif <- sapply(seq_len(ncol(X)), function(j) {
+  r2 <- summary(
+    lm(X[, j] ~ X[, -j, drop = FALSE])
+  )$r.squared
+
+  1 / (1 - r2)
+})
+
+names(vif) <- colnames(X)
+
+kable_english(data.frame(Variabile = names(sort(vif, decreasing = TRUE)),
+                         VIF = round(as.numeric(sort(vif, decreasing = TRUE)), 2)),
+             caption = "Variance inflation factors")
+```
+
+##### Interpretation of results
+
+All **variance inflation factors (VIFs)** are below 3; the highest is **2.09** for newborn length.
+
+There is therefore no evidence of substantial **multicollinearity** in the full model. Although length, head circumference and gestational age have moderate correlations, these do not appear to materially undermine the stability of coefficient estimates.
+
+
+### 6.4 Reducing the full model
+
+The full model is progressively reduced, assessing whether excluding predictors leads to a meaningful loss of explanatory fit.
+
+The first step considers excluding maternal age, which has a small, non-significant coefficient in the full model.
+
+
+```{r riduzione-modello-1}
+
+# Dataset with the same observations as the full model
+dati_modello <- model.frame(modello_completo)
+
+# Remove maternal age
+modello_senza_eta <- update(
+  modello_completo,
+  . ~ . - Anni.madre,
+  data = dati_modello
+)
+
+kable_english(tabella_coefficienti(modello_senza_eta),
+             caption = "Coefficients after excluding maternal age")
+kable_english(tabella_adattamento(modello_senza_eta),
+             caption = "Fit measures after excluding maternal age")
+
+kable_english(anova(modello_senza_eta, modello_completo), digits = 3,
+             caption = "ANOVA comparison: excluding maternal age")
+
+kable_english(BIC(modello_completo, modello_senza_eta), digits = 2,
+             caption = "BIC comparison")
+
+```
+
+
+##### Interpretation of results
+
+The first step in reducing the model was to assess the exclusion of **maternal age**, which was not statistically significant in the full model.
+
+An ANOVA comparison of the models finds no significant deterioration in fit when maternal age is excluded (**F = 0.489; p = 0.485**).
+
+**R² is virtually unchanged** (from 0.7289 to 0.7288), while **BIC falls** from 35,215.45 to 35,208.12, favouring the simpler model.
+
+Maternal age is therefore **excluded**, and the remaining predictors are assessed.
+
+
+### 6.5 Assessing the exclusion of maternal smoking
+
+The exclusion of **maternal smoking**, which was not statistically significant in the preceding model, is assessed.
+
+```{r riduzione-modello-2}
+# Model without maternal age or maternal smoking
+modello_senza_fumo <- update(
+  modello_senza_eta,
+  . ~ . - Fumatrici,
+  data = dati_modello
+)
+
+# Results for the new model
+kable_english(tabella_coefficienti(modello_senza_fumo),
+             caption = "Coefficients after excluding maternal smoking")
+kable_english(tabella_adattamento(modello_senza_fumo),
+             caption = "Fit measures after excluding maternal smoking")
+
+# Comparison with the previous model
+kable_english(anova(modello_senza_fumo, modello_senza_eta), digits = 3,
+             caption = "ANOVA comparison: excluding smoking")
+
+# Compare BIC values
+kable_english(BIC(modello_senza_eta, modello_senza_fumo), digits = 2,
+             caption = "BIC comparison")
+```
+
+##### Interpretation of results
+
+The second reduction step involved excluding **maternal smoking**, which was not significant in the preceding model.
+
+The ANOVA comparison shows no statistically significant deterioration in fit after exclusion (**F = 1.220; p = 0.269**).
+
+**R² is virtually unchanged** (from 0.7288 to 0.7287), while **BIC declines** from 35,208.12 to 35,201.52, favouring the simpler model.
+
+Maternal smoking is therefore **excluded from the reduced model**. This does not imply the absence of a clinical relationship between smoking and birth weight; it reflects the limited contribution of this variable in the current statistical model.
+
+
+### 6.6 Assessing the exclusion of hospital
+
+The analysis assesses whether **hospital**, considered as a whole, contributes significantly to model fit.
+
+```{r riduzione-modello-3}
+# Model without hospital
+modello_senza_ospedale <- update(
+  modello_senza_fumo,
+  . ~ . - Ospedale,
+  data = dati_modello
+)
+
+# Reduced-model results
+kable_english(tabella_coefficienti(modello_senza_ospedale),
+             caption = "Coefficients after excluding hospital")
+kable_english(tabella_adattamento(modello_senza_ospedale),
+             caption = "Fit measures after excluding hospital")
+
+# Compare models
+kable_english(anova(modello_senza_ospedale, modello_senza_fumo), digits = 3,
+             caption = "ANOVA comparison: excluding hospital")
+
+# Compare BIC values
+kable_english(BIC(modello_senza_fumo, modello_senza_ospedale), digits = 2,
+             caption = "BIC comparison")
+```
+
+##### Interpretation of results
+
+The third reduction step addressed **hospital**, evaluated jointly through a comparison of nested models.
+
+The ANOVA shows a statistically significant contribution of hospital to model fit (**F(2, 2489) = 4.681; p = 0.009**).
+
+Nevertheless, excluding hospital produces only a small decrease in **R²** (from 0.7287 to 0.7277), while **BIC declines** from 35,201.52 to 35,195.25, favouring the simpler model.
+
+Giving priority to parsimony as measured by BIC, **hospital is excluded from the reduced model**, while acknowledging its statistically significant contribution in the ANOVA comparison.
+
+
+### 6.7 Assessing the exclusion of delivery type
+
+The analysis assesses whether excluding **delivery type** worsens model fit. This variable was statistically significant in the preceding model.
+
+```{r riduzione-modello-4}
+# Model without delivery type
+modello_senza_parto <- update(
+  modello_senza_ospedale,
+  . ~ . - Tipo.parto,
+  data = dati_modello
+)
+
+# New model results
+kable_english(tabella_coefficienti(modello_senza_parto),
+             caption = "Reduced-model coefficients")
+kable_english(tabella_adattamento(modello_senza_parto),
+             caption = "Reduced-model fit measures")
+
+# Compare the two models
+kable_english(anova(modello_senza_parto, modello_senza_ospedale), digits = 3,
+             caption = "ANOVA comparison: excluding delivery type")
+
+# Compare BIC values
+kable_english(BIC(modello_senza_ospedale, modello_senza_parto), digits = 2,
+             caption = "BIC comparison")
+```
+
+##### Interpretation of results
+
+The exclusion of **delivery type** from the regression model was evaluated.
+
+The ANOVA indicates a statistically significant contribution from this variable (**F(1, 2492) = 6.210; p = 0.013**).
+
+However, its exclusion produces only a very small decrease in **R²** (from 0.7277 to 0.7270). **BIC declines** from 35,195.25 to 35,193.65, weakly favouring the simpler model.
+
+Prioritising parsimony, **delivery type is excluded** from the reduced model, while recognising that the BIC difference is modest and the variable has a statistically significant contribution.
+
+
+### 6.8 Comparing the full and reduced models
+
+The full model is compared with a reduced model retaining five predictors: number of previous pregnancies, gestational age, newborn length, head circumference and newborn sex.
+
+ANOVA and BIC are used to assess whether reducing model complexity entails a meaningful loss of fit.
+
+```{r confronto-modelli-finale}
+# Overall ANOVA comparison
+kable_english(anova(modello_senza_parto, modello_completo), digits = 3,
+             caption = "ANOVA comparison: reduced vs full model")
+
+# Compare BIC values
+kable_english(BIC(modello_completo, modello_senza_parto), digits = 2,
+             caption = "BIC comparison")
+```
+
+##### Interpretation of results
+
+The comparison shows a **small reduction in explanatory power**: R² decreases from **0.7289 to 0.7270**, a difference of only 0.0019.
+
+The ANOVA comparison is statistically significant (**F(5, 2487) = 3.460; p = 0.004**), indicating that the excluded variables jointly contribute to model fit.
+
+However, **BIC falls from 35,215.45 to 35,193.65**, favouring the reduced model, which uses only five predictors.
+
+Prioritising **parsimony**, the reduced model is selected as the final candidate, while acknowledging a small but statistically significant loss of fit.
+
+The selected model includes **number of previous pregnancies, gestational age, length, head circumference and newborn sex**.
+
+**Interpretation of β coefficients in the reduced model:** Holding the other predictors constant, each additional previous pregnancy is associated with an estimated **12.46 g** increase in mean birth weight; each additional week of gestation with **32.38 g**; each additional millimetre of length with **10.25 g**; and each additional millimetre of head measurement with **10.54 g**. With the other predictors held constant, male newborns have an estimated mean birth weight **77.98 g** higher than females. The intercept is the predicted value when all numerical predictors are zero and has no direct clinical interpretation here. These coefficients describe conditional associations, not causal effects.
+
+
+### 6.9 Diagnostics for the reduced model
+
+Residual diagnostic plots are examined to assess the adequacy of the selected model.
+
+```{r diagnostica-modello}
+
+par(mfrow = c(2, 2))
+
+plot(modello_senza_parto)
+
+par(mfrow = c(1, 1))
+
+```
+```{r verifica-caso-1551}
+
+# Identify observation 1551
+kable_english(dati[1551, c(
+  "Peso",
+  "Gestazione",
+  "Lunghezza",
+  "Cranio",
+  "Sesso",
+  "N.gravidanze"
+)], caption = "Characteristics of observation 1551")
+
+# Residual and Cook's distance
+kable_english(data.frame(
+  Indicatore = c("Residual", "Cook's distance"),
+  Valore = c(residuals(modello_senza_parto)["1551"],
+             cooks.distance(modello_senza_parto)["1551"])
+), digits = 3, caption = "Diagnostic measures for observation 1551")
+```
+
+### 6.10 Analysis of influential observations
+
+Observation 1551 combines an unusual birth weight and length with a high Cook's distance (0.830).
+
+To assess its influence, the model is temporarily refitted without that observation.
+
+```{r sensibilita-caso-1551}
+# Model without the suspicious observation
+modello_senza_1551 <- update(
+  modello_senza_parto,
+  data = dati_modello[
+    rownames(dati_modello) != "1551",
+  ]
+)
+
+# Compare coefficients
+kable_english(round(
+  cbind(
+    Con_caso_1551 = coef(modello_senza_parto),
+    Senza_caso_1551 = coef(modello_senza_1551)
+  ), 2
+), caption = "Coefficients with and without observation 1551")
+```
+
+##### Interpretation of results
+
+Observation **1551**, previously flagged in the data quality checks, combines a birth weight of **4,370 g** with a length of **315 mm**, an especially unusual combination.
+
+Its **Cook's distance (0.830)** indicates potentially substantial influence on model estimates.
+
+Comparing estimates with and without this observation reveals changes mainly for **gestational age, length and head circumference**, of approximately 6%–9%. The coefficients retain their signs, and the estimated associations do not change radically.
+
+Without confirmation of a recording error, the observation is retained in the original dataset. Sensitivity analysis documents its influence on the estimates.
+
+
+```{r diagnostica-sensibilita}
+# Diagnostics after removing observation 1551
+par(mfrow = c(2, 2))
+
+plot(modello_senza_1551)
+
+par(mfrow = c(1, 1))
+
+```
+
+
+##### Comparison of residual diagnostics
+
+Temporarily excluding observation **1551** improves the residual distribution by reducing the number of extreme residuals.
+
+However, **departures from normality in the tails** and possible irregularities in residual dispersion remain, suggesting that the diagnostic concerns cannot be attributed to this observation alone.
+
+Because its exclusion does not substantially change the interpretation of the coefficients, **observation 1551 is retained in the main model**, with its influence documented through sensitivity analysis.
+
+
+
+### 6.11 Checking model assumptions
+
+To examine the residual patterns identified in diagnostic plots, the Breusch–Pagan test for homoscedasticity and Shapiro–Wilk test for normality are performed.
+
+```{r test-diagnostici}
+# Breusch–Pagan test
+kable_english(tabella_test(lmtest::bptest(modello_senza_parto)),
+             caption = "Breusch–Pagan test")
+
+# Shapiro–Wilk test
+kable_english(tabella_test(shapiro.test(residuals(modello_senza_parto))),
+             caption = "Shapiro–Wilk test")
+```
+
+##### Interpretation of results
+
+The Breusch–Pagan test indicates a **violation of the homoscedasticity assumption** (**BP = 90.297; p < 0.001**), suggesting non-constant residual variance.
+
+The Shapiro–Wilk test is also statistically significant (**W = 0.974; p < 0.001**), indicating a **departure from residual normality**, consistent with the Q–Q plot.
+
+Given the large sample size, the Shapiro–Wilk result should be interpreted cautiously because the test is sensitive even to relatively small departures from normality.
+
+Overall, the diagnostics identify limitations of the linear model assumptions, particularly homoscedasticity. These limitations affect inferential interpretation and are considered in the conclusions.
+
+
+
+### 6.12 Checking for nonlinearity
+
+To assess whether the relationship between gestational age and birth weight is adequately represented as linear, a second model adds a quadratic term for gestational age.
+
+```{r verifica-nonlinearita}
+modello_quadratico <- update(
+  modello_senza_parto,
+  . ~ . + I(Gestazione^2)
+)
+
+# Compare the linear and quadratic models
+kable_english(anova(modello_senza_parto, modello_quadratico), digits = 3,
+             caption = "ANOVA comparison: quadratic term")
+
+# Compare BIC values
+kable_english(BIC(modello_senza_parto, modello_quadratico), digits = 2,
+             caption = "BIC comparison")
+```
+
+##### Interpretation of results
+
+Adding the quadratic gestational-age term yields a statistically significant improvement in fit (F = 5.25; p = 0.022).
+
+However, the improvement is small, and **BIC is lower for the linear model** (35,193.65 versus 35,196.21).
+
+The **linear model is therefore retained**, prioritising parsimony and ease of interpretation. The result nevertheless suggests a possible nonlinear component in the relationship between gestational age and birth weight.
+
+
+### 6.13 Testing the gestational age × sex interaction
+
+An interaction term is added to the reduced model to assess whether the relationship between gestational age and birth weight differs by newborn sex.
+
+```{r verifica-interazione}
+# Model with interaction
+modello_interazione <- update(
+  modello_senza_parto,
+  . ~ . + Gestazione:Sesso
+)
+
+# Compare models
+kable_english(anova(modello_senza_parto, modello_interazione), digits = 3,
+             caption = "ANOVA comparison: interaction term")
+
+# Compare BIC values
+kable_english(BIC(modello_senza_parto, modello_interazione), digits = 2,
+             caption = "BIC comparison")
+```
+
+
+##### Interpretation of results
+
+Adding the gestational-age × sex interaction does not produce a statistically significant improvement in fit (F = 1.24; p = 0.265).
+
+BIC also favours the model without the interaction (35,193.65 versus 35,200.22).
+
+Thus, **the interaction is not retained**, confirming the selection of the more parsimonious reduced model.
+
+
+### 6.14 Sensitivity analysis of the five suspicious cases
+
+The data quality checks identified five observations with unusual combinations of birth weight, gestational age and anthropometric measurements.
+
+To evaluate their influence, the reduced model is temporarily refitted excluding these five observations.
+
+```{r sensibilita-cinque-casi}
+# Identify the five suspicious cases
+casi_sospetti <- dati[
+  (dati$Gestazione == 28 & dati$Peso == 1560 & dati$Cranio == 379) |
+  (dati$Gestazione == 38 & dati$Peso == 4370 & dati$Lunghezza == 315) |
+  (dati$Gestazione == 32 & dati$Peso == 1890 & dati$Lunghezza == 500) |
+  (dati$Gestazione == 40 & dati$Peso == 1850) |
+  (dati$Gestazione == 35 & dati$Peso == 4520),
+]
+
+# Check the identified records
+kable_english(casi_sospetti[, c("Peso", "Gestazione", "Lunghezza", "Cranio")],
+             caption = "Five suspicious records in sensitivity analysis")
+stopifnot(nrow(casi_sospetti) == 5)
+
+# Temporarily exclude them from the regression data
+dati_senza_5 <- dati_modello[
+  !(rownames(dati_modello) %in% rownames(casi_sospetti)),
+]
+
+# Refit the model
+modello_senza_5 <- update(
+  modello_senza_parto,
+  data = dati_senza_5
+)
+
+# Compare coefficients
+kable_english(round(cbind(
+  Modello_originale = coef(modello_senza_parto),
+  Senza_5_casi = coef(modello_senza_5),
+  Differenza = coef(modello_senza_5) - coef(modello_senza_parto)
+), 2), caption = "Coefficients with and without the five suspicious records")
+
+# Compare model fit
+kable_english(data.frame(
+  Modello = c("Original", "Without 5 records"),
+  N = c(nobs(modello_senza_parto), nobs(modello_senza_5)),
+  R2 = c(
+    summary(modello_senza_parto)$r.squared,
+    summary(modello_senza_5)$r.squared
+  )
+), digits = 4, caption = "Fit comparison in sensitivity analysis")
+```
+
+##### Interpretation of results
+
+Temporarily excluding the five suspicious records increases R² from **0.7270 to 0.7383**, or approximately **1.13 percentage points**. This comparison is descriptive because the models are fitted to different samples.
+
+All coefficients retain their signs. The largest change concerns **gestational age**, whose coefficient decreases from 32.38 to 28.07 g per week (−13.3%). Changes in the other coefficients are smaller.
+
+Overall, the analysis suggests that these suspicious observations influence some estimates without substantially changing the direction of the associations.
+
+Without definitive evidence of recording errors, **the five observations are retained in the main model**, with their influence documented and considered when interpreting the results.
+
+
+## 7. Birth weight prediction
+
+### 7.1 Specifying the prediction model
+
+The goal is to predict the birth weight of a female newborn delivered at 39 weeks of gestation whose mother is in her third pregnancy.
+
+The regression model selected in the preceding section includes newborn length and head circumference. However, these measurements are not provided for the specific prediction case and therefore cannot be used directly.
+
+A separate prediction model is therefore constructed using only the known characteristics: **gestational age, number of previous pregnancies and newborn sex**.
+
+Two specifications are compared:
+
+- **Linear model:** assumes a linear relationship between gestational age and birth weight.
+- **Quadratic model:** adds a squared gestational-age term to test whether a nonlinear relationship improves fit.
+
+The models are compared using nested-model ANOVA and BIC, with a preference for parsimony when additional complexity yields no substantial improvement.
+
+```{r confronto-modelli-previsione}
+# Linear model
+modello_previsione <- lm(
+  Peso ~ Gestazione + N.gravidanze + Sesso,
+  data = dati
+)
+
+# Model with a quadratic gestational-age term
+modello_previsione_quad <- lm(
+  Peso ~ Gestazione + I(Gestazione^2) +
+    N.gravidanze + Sesso,
+  data = dati
+)
+
+# Compare the models
+confronto_anova_previsione <- as.data.frame(
+  anova(modello_previsione, modello_previsione_quad)
+)
+p_anova_previsione <- confronto_anova_previsione[["Pr(>F)"]]
+confronto_anova_previsione[["Pr(>F)"]] <- ifelse(
+  is.na(p_anova_previsione), "—",
+  format.pval(p_anova_previsione, digits = 3, eps = 0.001)
+)
+kable_english(confronto_anova_previsione, digits = 3,
+             caption = "ANOVA comparison: prediction models")
+kable_english(BIC(modello_previsione, modello_previsione_quad), digits = 2,
+             caption = "BIC comparison")
+
+# Coefficients and goodness-of-fit measures for the selected model
+kable_english(tabella_coefficienti(modello_previsione_quad),
+             caption = "Quadratic prediction-model coefficients")
+kable_english(tabella_adattamento(modello_previsione_quad),
+             caption = "Quadratic prediction-model fit measures")
+```
+
+##### Interpretation of results
+
+Including the quadratic term for gestational age results in a statistically significant improvement in model fit (F = 54.76; p < 0.001).
+
+BIC also favours the quadratic model (37,215.07) over the linear model (37,261.52).
+
+The **quadratic model is therefore selected for birth-weight prediction**, as it can capture a potential nonlinear relationship between gestational duration and birth weight.
+
+The model uses only information provided for the specified case. Its **R² is approximately 0.392**, explaining **39.2%** of birth-weight variation in the sample, with a residual standard error of approximately **410 g**. This is lower than for the Section 6 model because the newborn anthropometric measurements are unavailable for this prediction.
+
+**Interpretation of β coefficients in the prediction model:** Holding the other predictors constant, each additional previous pregnancy is associated with an estimated **22.50 g** increase in mean birth weight, while the expected mean birth weight of males is **171.45 g** higher than that of females. Because gestational age enters the model both linearly and quadratically, its associated increment **is not constant**: for example, holding other variables constant, increasing gestational age from 39 to 40 weeks corresponds to an estimated increase of approximately **126.9 g**. The negative quadratic coefficient indicates that this increment tends to decrease with increasing gestational age over the range considered. These are statistical associations rather than causal effects.
+
+
+### 7.2 Applied prediction
+
+The selected quadratic model is used to predict the birth weight of a female newborn delivered at 39 weeks of gestation whose mother is in her third pregnancy.
+
+Because `N.gravidanze` denotes the number of **previous** pregnancies, the value is set to 2.
+
+In addition to the point estimate, a 95% prediction interval is calculated to express uncertainty in predicting the weight of an individual newborn.
+
+```{r previsione-neonata}
+# Characteristics of the newborn
+nuova_neonata <- data.frame(
+  Gestazione = 39,
+  N.gravidanze = 2,
+  Sesso = factor("F", levels = levels(dati$Sesso))
+)
+
+# Prediction with 95% interval
+kable_english(predict(
+  modello_previsione_quad,
+  newdata = nuova_neonata,
+  interval = "prediction",
+  level = 0.95
+), digits = 1, caption = "Prediction and 95% prediction interval (g)")
+```
+
+
+##### Interpreting the prediction
+
+For a female newborn delivered at 39 weeks whose mother is in her third pregnancy, the quadratic model predicts a **birth weight of 3,249 g**.
+
+The **95% prediction interval** ranges from **2,445 g to 4,053 g**.
+
+The width of this interval reflects considerable uncertainty in individual predictions because birth weight also depends on characteristics not included in the model.
+
+The interval is calculated under the assumptions of linear regression and should be interpreted in light of the model's potential limitations.
+
+
+### 7.3 Prediction sensitivity analysis
+
+To evaluate robustness, the quadratic model is temporarily refitted excluding the five suspicious observations identified during data quality checks.
+
+```{r sensibilita-previsione}
+# Quadratic model excluding the five suspicious records
+modello_previsione_senza5 <- update(
+  modello_previsione_quad,
+  data = dati[
+    !(rownames(dati) %in% rownames(casi_sospetti)),
+  ]
+)
+
+# Predictions with and without the five records
+previsione_originale <- predict(
+  modello_previsione_quad,
+  newdata = nuova_neonata,
+  interval = "prediction"
+)
+
+previsione_senza5 <- predict(
+  modello_previsione_senza5,
+  newdata = nuova_neonata,
+  interval = "prediction"
+)
+
+# Comparison
+kable_english(round(rbind(
+  Originale = previsione_originale,
+  Senza_5_casi = previsione_senza5
+), 1), caption = "Prediction with and without five suspicious records (g)")
+```
+
+
+##### Interpretation of results
+
+Excluding the five suspicious observations produces only a small change in the point prediction, from **3,249.1 g to 3,246.4 g**, a difference of just **2.7 g**.
+
+The 95% prediction interval is also virtually unchanged.
+
+These findings indicate that **the prediction for the specified case is robust to the inclusion of the five suspicious observations**.
+
+All observations are therefore retained in the prediction model, with no permanent exclusions.
+
+
+### 7.4 Prediction model diagnostics
+
+Before drawing conclusions from the prediction, the assumptions of the selected quadratic model are assessed.
+
+```{r diagnostica-previsione}
+par(mfrow = c(2, 2))
+plot(modello_previsione_quad)
+par(mfrow = c(1, 1))
+
+# Test homoscedasticity
+kable_english(tabella_test(lmtest::bptest(modello_previsione_quad)),
+             caption = "Breusch–Pagan test")
+
+# Test residual normality
+kable_english(tabella_test(shapiro.test(residuals(modello_previsione_quad))),
+             caption = "Shapiro–Wilk test")
+```
+
+##### Interpretation of diagnostic checks
+
+The Breusch–Pagan test (BP = 9.66; p = 0.047) suggests potentially non-constant residual variance. The Shapiro–Wilk test is also significant (W = 0.996; p < 0.001), although W being close to 1 suggests that departures from normality are not pronounced. The diagnostic plots show some irregularities in residual dispersion and departures in the tails of the Q–Q plot.
+
+These results do not prevent calculation of a prediction, but they call for caution in interpreting the 95% interval, which depends on the model's assumptions.
+
+```{r distanza-cook-previsione}
+# Five observations with the largest Cook's distances
+distanze_cook <- head(
+  sort(
+    cooks.distance(modello_previsione_quad),
+    decreasing = TRUE
+  ), 5
+)
+kable_english(data.frame(
+  Riga = names(distanze_cook),
+  Distanza_Cook = as.numeric(distanze_cook)
+), digits = 3, caption = "Five most influential observations")
+```
+
+
+```{r sensibilita-cook-previsione}
+# Identify the five most influential observations
+id_influenti <- names(
+  head(sort(cooks.distance(modello_previsione_quad),
+            decreasing = TRUE), 5)
+)
+
+# Model without the five most influential observations
+modello_previsione_senza_influenti <- update(
+  modello_previsione_quad,
+  data = dati[!(rownames(dati) %in% id_influenti), ]
+)
+
+# Compare predictions
+kable_english(round(rbind(
+  Originale = predict(
+    modello_previsione_quad,
+    nuova_neonata,
+    interval = "prediction"
+  ),
+  Senza_5_influenti = predict(
+    modello_previsione_senza_influenti,
+    nuova_neonata,
+    interval = "prediction"
+  )
+), 1), caption = "Prediction with and without five most influential records (g)")
+```
+
+
+##### Sensitivity to influential observations
+
+The five observations with the highest Cook's distances are rows 1780, 2452, 2120, 310 and 1553. Observation 1780 has the highest value (0.169).
+
+To assess their influence on the prediction, the model is temporarily refitted excluding these five observations.
+
+The point prediction changes from **3,249.1 g to 3,252.4 g**, a difference of only **3.3 g**. The bounds of the 95% prediction interval also remain virtually unchanged.
+
+The findings suggest that **the prediction for the specified case is stable when the most influential observations are removed**. All observations are therefore retained in the main model, and these diagnostic checks are documented.
+
+
+## 8. Visualisation of results
+
+### 8.1 Relationship between gestational age and birth weight
+
+The following figure illustrates the relationship between gestational age and birth weight using the observed data and the fitted curve from the selected quadratic model.
+
+The points represent observations in the visible gestational-age range from the entire sample (both sexes and all previous-pregnancy counts). The curve instead describes the specific profile of a female newborn whose mother had two previous pregnancies. The prediction at 39 weeks and its 95% prediction interval are also highlighted.
+
+```{r grafico-previsione, fig.width=9, fig.height=5.5}
+library(ggplot2)
+
+# Profile used to draw the model curve
+profilo <- data.frame(
+  Gestazione = seq(34, 42, by = 0.1
+  ),
+  N.gravidanze = 2,
+  Sesso = factor("F", levels = levels(dati$Sesso))
+)
+
+profilo$Peso_previsto <- predict(
+  modello_previsione_quad,
+  newdata = profilo
+)
+
+# Prediction for the female newborn at 39 weeks
+punto_previsione <- cbind(
+  data.frame(Gestazione = 39),
+  as.data.frame(
+    predict(
+      modello_previsione_quad,
+      newdata = nuova_neonata,
+      interval = "prediction"
+    )
+  )
+)
+
+# Plot
+ggplot(dati, aes(x = Gestazione, y = Peso)) +
+  geom_jitter(width = 0.15, alpha = 0.15, size = 1) +
+  geom_line(
+    data = profilo,
+    aes(x = Gestazione, y = Peso_previsto),
+    inherit.aes = FALSE,
+    color = "steelblue",
+    linewidth = 1.2
+  ) +
+  geom_pointrange(
+    data = punto_previsione,
+    aes(x = Gestazione, y = fit, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    color = "firebrick",
+    linewidth = 0.8
+  ) +
+  labs(
+    title = "Birth weight and gestational age",
+    subtitle = "Quadratic model and prediction for a female newborn",
+    x = "Gestational age (weeks)",
+    y = "Birth weight (g)",
+    caption = "Points: all visible observations. Curve: female, two previous maternal pregnancies. Red bar: 95% prediction interval."
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(34, 42))
+```
+
+
+##### Interpreting the figure
+
+The figure shows a positive relationship between gestational duration and birth weight, with the quadratic curve capturing a nonlinear pattern.
+
+The scatter of points illustrates substantial individual variability in birth weight, even among newborns with the same gestational age.
+
+For a female newborn delivered at 39 weeks whose mother had two previous pregnancies, the predicted weight is **3,249 g**, with a 95% prediction interval of **2,445–4,053 g**.
+
+The width of the interval highlights the limited precision of individual predictions.
+
+
+
+## 9. Discussion and conclusions
+
+### 9.1 Summary of key findings
+
+The analysis of 2,500 births was used to explore the characteristics associated with newborn weight and to develop a birth-weight prediction model.
+
+Exploratory analyses found positive associations of birth weight with gestational duration, length and head circumference. Significant differences were also observed between male and female newborns, with males having a higher mean weight.
+
+The selected multiple regression model, including number of previous pregnancies, gestational age, length, head circumference and newborn sex, explains approximately **72.7% of birth-weight variation** in the analysed sample.
+
+A separate model was developed for the applied prediction using only the information provided for that case. Comparing linear and quadratic specifications supported including a quadratic gestational-age term.
+
+The prediction model estimates a birth weight of **3,249 g** for a female newborn delivered at 39 weeks whose mother is in her third pregnancy, with a 95% prediction interval of **2,445–4,053 g**.
+
+### 9.2 Limitations
+
+The analysis has several methodological limitations.
+
+First, the dataset includes unusual combinations of neonatal measurements whose accuracy cannot be checked directly. Sensitivity analyses nevertheless indicate that excluding these records does not substantially change the main conclusions or the applied prediction.
+
+Second, the diagnostics reveal departures from linear regression assumptions, particularly residual normality and homoscedasticity. Prediction intervals should therefore be interpreted cautiously.
+
+Third, the prediction model uses a limited set of characteristics and does not account for other potentially relevant factors associated with birth weight.
+
+Finally, model performance was assessed on the available dataset without validation on independent data. Predictive accuracy on new cases therefore cannot be determined with confidence.
+
+### 9.3 Conclusions
+
+This project applies descriptive and inferential statistical methods to birth-weight analysis, combining hypothesis tests, linear regression, model selection and diagnostic analysis.
+
+The results reinforce the importance of gestational duration and anthropometric characteristics in their associations with birth weight.
+
+The prediction model provides a quantitative estimate for the specified case, but the wide prediction interval highlights the considerable uncertainty of individual predictions.
+
+Overall, the work illustrates how statistical models can be used to describe associations and generate predictions, while emphasising the importance of data quality, methodological assumptions and limits to generalisation.
+
+
+
