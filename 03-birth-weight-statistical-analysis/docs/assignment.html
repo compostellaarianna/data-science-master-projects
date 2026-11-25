@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Course Assignment — Birth Weight Analysis</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+     color:#253342;background:#fff;line-height:1.65;margin:0}
+main{max-width:860px;padding:36px 28px 72px;margin:auto}
+h1{font-size:1.95rem;line-height:1.25;margin-top:24px}
+h2{font-size:1.45rem;margin-top:36px}h3{font-size:1.13rem;margin-top:26px}
+a{color:#2671af}p,li{font-size:1rem}li{margin:5px 0}
+blockquote{margin:22px 0;padding:8px 20px;border-left:3px solid #4d89ba;
+           background:#f6f9fc}hr{border:0;border-top:1px solid #dbe2ea;margin:30px 0}
+nav{font-size:.94rem;padding-bottom:20px;border-bottom:1px solid #dbe2ea}
+</style>
+</head><body><main><nav><a href="../birth_weight_analysis.html">Back to statistical report</a></nav>
+<h1>Course assignment: Birth Weight Analysis Across 2,500 Records from Three Hospitals</h1>
+<blockquote>
+<p><strong>Source.</strong> English adaptation of the original Italian course assignment. The analytical requirements are preserved. Population reference values are taken from the assignment and are not independently sourced clinical norms.</p>
+</blockquote>
+<h2>Background</h2>
+<p>Birth weight is an informative indicator of neonatal health. Estimating it before delivery using information available during pregnancy may be relevant for anticipating neonatal care needs. The statistical analysis also aims to identify factors associated with birth weight and assess whether observations from the three hospitals are comparable.</p>
+<h2>Data</h2>
+<p>A dataset of <strong>2,500 birth records</strong> from three hospitals is provided. Each record includes:</p>
+<ul>
+<li>Maternal age</li>
+<li>Number of previous pregnancies</li>
+<li>Maternal smoking status (0 = non-smoker; 1 = smoker)</li>
+<li>Gestational age in weeks</li>
+<li>Birth weight in grams</li>
+<li>Newborn length and head measurement</li>
+<li>Delivery type (vaginal/natural or caesarean)</li>
+<li>Hospital of birth (three hospitals)</li>
+<li>Newborn sex</li>
+</ul>
+<p>The original brief notes that length and cranial measurements can also be assessed during pregnancy through ultrasound and may therefore potentially be available before delivery. <strong>For this particular dataset, birth measurements and prenatal estimates must not be assumed to be identical.</strong></p>
+<h2>Required work</h2>
+<h3>1. Data exploration and quality assessment</h3>
+<p>Conduct descriptive exploration of all variables, including distributions, anomalous or clinically implausible values, and missing data. Assess which columns can be trusted and explain any data-cleaning decisions.</p>
+<h3>2. Three hypothesis-testing questions</h3>
+<p>Investigate:</p>
+<ul>
+<li>Whether the frequency of caesarean deliveries differs among the three hospitals.</li>
+<li>Whether the sample mean birth weight and mean length are compatible with the Italian-population reference values specified in the assignment (<strong>3,300 g</strong> and <strong>50 cm</strong>).</li>
+<li>Whether anthropometric measurements differ between male and female newborns.</li>
+</ul>
+<p>For each question, state the null and alternative hypotheses, identify the test used and explain the rationale for choosing it.</p>
+<h3>3. Multiple linear regression</h3>
+<p>Develop a multiple linear regression model for birth weight, <strong>starting with the complete set of predictors</strong> and obtaining a simpler specification containing the most relevant variables. If appropriate, investigate interaction terms and nonlinear relationships, explaining the decisions.</p>
+<h3>4. Diagnostics of the final model</h3>
+<p>Assess model fit, residuals and observations with disproportionate influence on coefficient estimates. Report whether and how these observations alter the conclusions.</p>
+<h3>5. Applied prediction</h3>
+<p>Estimate birth weight for <strong>a female newborn whose mother is in her third pregnancy and who is delivered at 39 weeks of gestation</strong>. Explain how the prediction should be interpreted.</p>
+<h3>6. Clinically readable figures</h3>
+<p>Create figures communicating the main relationships to a medical audience; for example, the relationship of predicted birth weight with gestational age and maternal smoking.</p>
+<h2>Communication expectations</h2>
+<p>The intended readers are midwives and neonatologists rather than statisticians. Accompany coefficients and p-values with an accessible interpretation of what they mean. Report uncertainty and model limitations rather than presenting unwarrantedly reassuring conclusions.</p>
+<h2>Detailed methodological guidance from the brief</h2>
+<h3>Examine the data before modelling</h3>
+<p>Create histograms and boxplots of continuous variables and frequency tables for categorical variables. A birth weight of <strong>200 g</strong> or a gestation of <strong>60 weeks</strong>, for example, should be treated as an apparent data-entry error rather than an ordinary clinical observation. Decide how to handle such values and document the decision in the report.</p>
+<h3>Formulate hypotheses before running each test</h3>
+<p>For each of the three clinical questions, state the null and alternative hypotheses before choosing the statistical tool. Distinguish between a one-sample comparison with a specified population value, a comparison of two group means, and a test of independence in a frequency table. Test selection depends on the quantity and groups being compared.</p>
+<h3>A p-value is not an effect size</h3>
+<p>With 2,500 observations, even small differences may be statistically significant. Report the difference between means or a confidence interval alongside the p-value, and discuss whether the effect may be clinically meaningful.</p>
+<h3>Explore pairwise relationships</h3>
+<p>Before regression, draw scatterplots of birth weight against continuous predictors and compute correlations. Inspect both relationships with birth weight and correlations between predictors, for instance between length and head measurements, which may carry overlapping information.</p>
+<h3>Check for nonlinear patterns</h3>
+<p>A low correlation does not imply that two variables are unrelated: a curved relationship may not be captured by Pearson's linear correlation. Inspect the figure rather than relying only on the coefficient.</p>
+<h3>Progress from the full model to a parsimonious model</h3>
+<p>Begin with every predictor and progressively remove nonsignificant variables, comparing successive models. <strong>Document each step:</strong> which predictor was removed, by what criterion and how model fit changed. A model with fewer, interpretable predictors can be more useful than one with many terms.</p>
+<h3>Handle categorical predictors correctly</h3>
+<p>Include sex, delivery type and hospital as factors in R. Interpret coefficients as differences relative to the reference category and explain the chosen reference categories in the report.</p>
+<h3>Treat diagnostics as substantive evidence</h3>
+<p>Inspect residuals against fitted values to evaluate whether residual variation is approximately constant and assess their distribution. Report unexpected patterns and discuss possible reasons; do not present the model as perfect.</p>
+<h3>Show prediction uncertainty</h3>
+<p>Report a suitable interval as well as the point prediction for the requested case. An individual clinical prediction without uncertainty can be misleading.</p>
+<h3>Design figures for their readers</h3>
+<p>Use meaningful axis labels, measurement units and informative titles instead of raw variable names. A figure showing predicted weight by gestational week, distinguishing smokers and non-smokers, may communicate more than a large table.</p>
+<hr>
+<p><em>Educational assignment; not an operational clinical protocol.</em></p>
+</main></body></html>
